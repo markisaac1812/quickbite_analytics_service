@@ -1,0 +1,19 @@
+# secrets
+.env
+
+# build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# local experimentation & dev aids — not tracked (mock-core, mint-jwt, publish-test, check-mongo)
+play/
+
+# editor / tooling
+.idea/
+.vscode/
+.claude/
+*.log
