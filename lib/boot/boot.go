@@ -44,17 +44,19 @@ func Run() error {
 	log := logger.New(cfg.LogLevel, cfg.AppEnv)
 	slog.SetDefault(log)
 
-	if err := run(cfg, log); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, cfg, log); err != nil {
 		log.Error("analytics-service stopped with error", "error", err.Error())
 		return err
 	}
 	return nil
 }
 
-func run(cfg config.Config, log *slog.Logger) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+// run boots everything and blocks until ctx is cancelled (Run cancels it on
+// SIGINT/SIGTERM; tests cancel it directly), then shuts down gracefully.
+func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// ── 1. MongoDB ─────────────────────────────────────────────────────────
 	bootCtx, cancelBoot := context.WithTimeout(ctx, cfg.Mongo.ConnectTimeout+5*time.Second)
 	defer cancelBoot()

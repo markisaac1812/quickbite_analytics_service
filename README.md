@@ -51,6 +51,18 @@ Production values come from a secret store, never from a committed file. Every v
 go build ./... && go vet ./...
 ```
 
+## Test
+
+Same flow as order-service's `npm test` / `test:integration` / `test:coverage`, written the Go way: test files sit next to the code, and integration files carry `//go:build integration`.
+
+```bash
+go test ./...                          # unit: no Mongo, no RabbitMQ (fakes + httptest)
+go test -tags integration ./...        # + integration: needs the Mongo replica set and RabbitMQ above
+scripts/test-coverage.sh               # both suites, merged coverage, fails below 80% (writes coverage.html)
+```
+
+The integration suites never touch dev data. Each package uses its own `quickbite_analytics_test_<pkg>` database and `analytics-test-*` queues and exchanges, and drops them afterwards. Point them elsewhere with `TEST_MONGO_URI` / `TEST_RABBITMQ_URL`. Set `TEST_LOG=1` to see the booted service's logs in `lib/boot`. Conventions are in `CLAUDE.md` §14.
+
 ---
 
 ## Run it
