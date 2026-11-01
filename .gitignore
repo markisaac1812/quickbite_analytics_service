@@ -1,5 +1,13 @@
-# secrets
+# secrets — every env file except the committed placeholder template
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# event exports for cmd/backfill-aggs (real order/customer data, see docs/backfill.md)
+*.ndjson
 
 # build output
 /bin/
@@ -7,13 +15,17 @@
 *.exe
 *.test
 *.out
+
+# test coverage (scripts/test-coverage.sh)
 coverage.*
 
-# local experimentation & dev aids — not tracked (mock-core, mint-jwt, publish-test, check-mongo)
+# local experimentation & dev aids — not tracked (mock-core, mint-jwt, publish-test, check-mongo, e2e)
 play/
 
-# editor / tooling
+# editor / tooling / OS
 .idea/
 .vscode/
 .claude/
 *.log
+.DS_Store
+Thumbs.db
