@@ -72,6 +72,9 @@ analytics-service/
 │   ├── controller/{analytics,platform}.controller.go + routes.go
 │   ├── dto/{analytics.request.go,analytics.response.go}
 │   └── eventhandlers/handlers.go   # event type → service method table
+├── internal/testkit/               # TEST-ONLY helpers (≈ tests/helpers): fixtures, factories, fakes, core stub, probes — see §14
+│   └── assert/                     # stdlib-only assertions (no testify)
+├── scripts/test-coverage.sh        # unit + integration, merged coverage, 80% gate (≈ npm run test:coverage)
 ├── play/                           # GITIGNORED dev aids: mock-core, mint-jwt, publish-test, check-mongo, e2e, internal/fixtures
 └── docs/                           # see §12
 ```
@@ -242,7 +245,7 @@ SIGINT/SIGTERM → HTTP `Shutdown` → `broker.Close` (cancel both consumers, wa
 - ❌ Side effects other than Mongo writes inside an event handler (the tx may be retried).
 - ❌ Floats for money; local time for day buckets.
 - ❌ New env vars that aren't `config.Config` fields; secrets in `.env.example`.
-- ❌ Dev scripts outside `play/`; production binaries inside `play/`.
+- ❌ Dev scripts outside `play/`; production binaries inside `play/`. (Exception: the committed coverage gate `scripts/test-coverage.sh`.)
 
 ---
 
@@ -254,7 +257,7 @@ SIGINT/SIGTERM → HTTP `Shutdown` → `broker.Close` (cancel both consumers, wa
 
 **A new endpoint:** request DTO (+ `validate`) → response DTO + mapper → service method → controller method → `routes.go` with the right guard → `docs/api-contracts.md` → `play/e2e`.
 
-Run `go run ./play/e2e` (service + mock-core running) before calling anything done.
+Every item above ships with its tests (§14) in the same PR. Before calling anything done, run `scripts/test-coverage.sh` (green, ≥ 80%) and `go run ./play/e2e` (service + mock-core running).
 
 ---
 
@@ -276,4 +279,32 @@ Run `go run ./play/e2e` (service + mock-core running) before calling anything do
 - DLQ replay tooling; an order-service internal export endpoint (backfill reads a `psql` export, see `docs/backfill.md`).
 - Emitting events, writing to any operational DB, owning any business entity.
 - CORS, rate limiting, OpenAPI generation, metrics/tracing, Docker Compose / deployment (later DevOps section).
-- Go unit tests (the E2E suite in `play/e2e` is the acceptance gate today).
+
+---
+
+## 14. Testing
+
+Same flow as order-service's `tests/` (unit vs integration, AAA, shared helpers), done the Go way.
+
+| | Unit | Integration |
+| --- | --- | --- |
+| Files | `*_test.go`, next to the code | `*_integration_test.go`, next to the code, first line `//go:build integration` |
+| Needs | nothing: fakes, `httptest`, the core stub | MongoDB **replica set** + RabbitMQ (`TEST_MONGO_URI`, `TEST_RABBITMQ_URL`) |
+| Run | `go test ./...` (≈ `npm test`) | `go test -tags integration ./...` (≈ `npm run test:integration`) |
+
+**Coverage:** `scripts/test-coverage.sh` runs both in one `go test` with `-coverpkg` over `app/`, `lib/`, `pkg/` (not `cmd/`, `play/`, `internal/testkit`) and fails below **80%** (≈ `npm run test:coverage`). Writes `coverage.out` + `coverage.html` (gitignored).
+
+### Test conventions
+
+- **AAA:** every test body has `// Arrange`, `// Act`, `// Assert`. One behaviour per `t.Run`, named as a sentence (`"rejects an expired token with UNAUTHENTICATED"`). Table-driven when only the inputs vary.
+- **Assertions:** `internal/testkit/assert` (stdlib only; testify is a new library, see §2).
+- **Helpers** live in `internal/testkit` (≈ `tests/helpers`): caller fixtures + `SignToken`/`AuthCookie`, `CoreStub` (core's `/api/internal/rbac/permissions`), `FakeStores` (in-memory `analytics.*Store`; the timeline fake has real claim semantics), event factories (`Placed`, `Delivered`, `Rejected`, `PaymentCompleted`, `Envelope`), `TestMongo`, `AmqpProbe`, `Eventually`, `Get`/`GetURL`.
+- testkit imports `app/` and `lib/`, so a test that uses it must live in a package testkit does not import. Use the external `<pkg>_test` package when in doubt. `pkg/` tests use `testkit/assert` only, like `pkg/` itself.
+- **Isolation:** each integration package gets its own database `quickbite_analytics_test_<pkg>` and namespaced topology `analytics-test-<suffix>.*`. Never the dev queues or exchanges. Packages may run in parallel.
+- **Which layer tests what:**
+  - service, handlers, controllers and guards: unit tests over `FakeStores` and the core stub;
+  - repositories, `pkg/mongo`, `pkg/messaging`: integration tests against the real servers;
+  - `lib/boot`: the whole process via `run(ctx, cfg, log)` in `TestMain` (≈ `startTestServer`). Events are published through RabbitMQ and read back over HTTP. Prefetch is 1 there, so a later sentinel event proves the earlier ones were processed.
+- **Seeding:** HTTP read tests seed through the repositories (≈ `insertOrder` factories). Event tests publish real envelopes.
+- **Speed:** building the indexes of a fresh database costs seconds on a replica set. Reuse a package's database (`startApp(…, shared, …)`) instead of creating one per test.
+- New code ships with tests in the same PR, and the total stays ≥ 80%.

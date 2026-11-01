@@ -88,12 +88,14 @@ MONGO_TRANSACTIONS=off go run ./play/e2e   # same 56 checks
 
 ---
 
-## Phase 13: Go unit tests (open)
+## Phase 13: Go tests (done)
 
-**Accept:** `go test ./...` is green and covers:
-- `mergeLines`, `checkRange`, `avg`, `rate`;
-- `Dispatcher.Apply`: no handler / dup / failure → `Forget` / tx path, with fakes;
-- the guards, with `httptest`.
+**Accept:** `go test ./...` (unit) and `go test -tags integration ./...` are green; `scripts/test-coverage.sh` reports ≥ 80% merged coverage. Covers:
+- `mergeLines`, `checkRange`, `avg`, `rate`, every report, out-of-order settling (fake `Stores`);
+- `Dispatcher.Apply`: no handler / dup / failure → `Forget` / tx path, with fakes; then exactly-once against a real replica set;
+- the guards, auth, controllers and validation with `httptest`;
+- every repository, `pkg/mongo`, `pkg/messaging` (DLQ, panic, reconnect) against real servers;
+- the booted service end to end (events in, HTTP out), backfill, boot failures.
 
 ## Phase 14: `order.cancelled`, `order.accepted`, `payment.failed` (open)
 

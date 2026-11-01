@@ -26,7 +26,7 @@ One vertical slice end to end:
 
 ## Still open (homework round 2)
 
-1. **Go unit tests**: service (fake `Stores`), `Dispatcher` (fake deduper + tx runner), `mergeLines`, the guards.
+1. ~~**Go unit tests**~~: done. Unit + integration suites, `scripts/test-coverage.sh` gate at 80% (see `CLAUDE.md` §14).
 2. **More handlers**: `order.cancelled` (cancel rate, same timeline pattern as rejected), `order.accepted` (time-to-accept), `payment.failed` (payment failure rate per capture day).
 3. **core-service publishes `rbac.permissions_changed`** when a role's permissions change. Today no code path changes them, so this ships together with a permission-management API.
 4. **Hot platform row**: bucket `agg_platform_day` (`restaurant_id % N`) if transaction `WriteConflict` retries show up in latency.
