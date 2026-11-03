@@ -1,0 +1,61 @@
+# Host ports are shifted to avoid clashes: native RabbitMQ owns 5672/15672 and
+# core-service's stack uses 5673/15673; Mongo uses 27018 so the README's manual
+# qb-analytics-mongo container (used by integration tests) can keep 27017.
+
+services:
+  # Single-node replica set: enables Mongo transactions, so every event is
+  # applied exactly once (MONGO_TRANSACTIONS=auto picks this up).
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first boot, then is healthy only once
+      # this node is PRIMARY (writable) — not merely when mongod is up.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}) }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 10s
+      retries: 10
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  analytics-service:
+    build: .
+    image: quickbite-analytics-service
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      # core-service isn't in this stack (yet): reach it on the host, where it
+      # runs natively or via its own compose on port 3000.
+      CORE_SERVICE_BASE_URL: http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4002:4002"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  mongo-data:

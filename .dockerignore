@@ -1,0 +1,41 @@
+# Anything matched here is NOT sent to the Docker build context.
+
+# Local secrets must not bake into the image; passed at runtime via env_file.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Event exports for cmd/backfill-aggs (real data)
+*.ndjson
+
+# Build output / coverage (coverage.out alone is ~1.6MB)
+bin
+dist
+*.exe
+*.test
+coverage.*
+
+# Local dev aids — not part of the service binary
+play
+
+# Docs / notes
+docs
+*.md
+
+# Git, editor, tooling, OS
+.git
+.gitignore
+.idea
+.vscode
+.claude
+*.log
+.DS_Store
+Thumbs.db
+
+# Docker files themselves don't belong in the image
+Dockerfile
+.dockerignore
+docker-compose.yml
