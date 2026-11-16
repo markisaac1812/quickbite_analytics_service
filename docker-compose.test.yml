@@ -1,0 +1,70 @@
+# =====================================================================
+# CI test stack (used by .github/workflows/ci.yml and deploy.yml):
+#
+#   docker compose -f docker-compose.test.yml run --rm test
+#   docker compose -f docker-compose.test.yml down -v
+#
+# Unit tests need nothing running. The integration suite (build tag
+# `integration`) needs MongoDB as a replica set (transactions) and RabbitMQ,
+# so both are started here. set -e -> fail fast.
+# =====================================================================
+
+# Own project name: without it this stack shares "analytics-service" with
+# docker-compose.yml and reuses the dev containers/volumes (stale RabbitMQ
+# cookie -> broker fails to boot).
+name: analytics-service-test
+
+services:
+
+  # Single-node replica set: the transaction tests need one.
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      # Initiates the replica set on first run, healthy once this node is PRIMARY.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}) }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  test:
+    image: golang:1.26-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+      - go-build-cache:/root/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
+    environment:
+      CGO_ENABLED: "0"
+      TEST_MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      TEST_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # -p 1: integration packages share one broker; run them one at a time.
+    command: >
+      sh -e -c "go build ./... &&
+      go vet ./... &&
+      go vet -tags integration ./... &&
+      go test -count=1 ./... &&
+      go test -count=1 -p 1 -tags integration ./..."
+
+volumes:
+  go-build-cache:
+  go-mod-cache:
