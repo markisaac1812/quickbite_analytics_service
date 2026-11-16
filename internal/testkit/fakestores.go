@@ -156,7 +156,20 @@ type FakeProductDays struct {
 	Err   error
 	Bulk  []LinesCall
 	Top   []entity.ProductTotal
+	Days  []entity.ProductDay
 	Reads []RangeCall
+	// DayReads records FindRange calls: ID = restaurant, Limit = product id.
+	DayReads []RangeCall
+}
+
+func (f *FakeProductDays) FindRange(_ context.Context, restaurantID, productID int64, from, to string) ([]entity.ProductDay, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.DayReads = append(f.DayReads, RangeCall{ID: restaurantID, From: from, To: to, Limit: int(productID)})
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	return f.Days, nil
 }
 
 func (f *FakeProductDays) IncrementLines(_ context.Context, restaurantID int64, date, currency string, lines []analytics.OrderLine, _ time.Time) error {

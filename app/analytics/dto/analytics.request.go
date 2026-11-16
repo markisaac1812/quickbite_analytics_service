@@ -30,7 +30,16 @@ type TopProductsRequest struct {
 	Limit        int    `json:"limit" validate:"gte=0,lte=100"`
 }
 
-// PlatformRangeRequest: /platform/{days|active-restaurants}?from=&to=
+// ProductDaysRequest: /restaurants/{restaurantId}/products/days?from=&to=&productId=
+// productId is optional (0 → every product of the restaurant).
+type ProductDaysRequest struct {
+	RestaurantID int64  `json:"restaurantId" validate:"gt=0"`
+	ProductID    int64  `json:"productId" validate:"gte=0"`
+	From         string `json:"from" validate:"required,datetime=2006-01-02"`
+	To           string `json:"to" validate:"required,datetime=2006-01-02"`
+}
+
+// PlatformRangeRequest: /platform/{days|failures|active-restaurants}?from=&to=
 type PlatformRangeRequest struct {
 	From string `json:"from" validate:"required,datetime=2006-01-02"`
 	To   string `json:"to" validate:"required,datetime=2006-01-02"`

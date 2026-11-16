@@ -17,10 +17,12 @@ func TestRoutes_AccessRules(t *testing.T) {
 		"/restaurants/42/delivery-avg?" + rng,
 		"/restaurants/42/payments?" + rng,
 		"/restaurants/42/products/top?" + rng,
+		"/restaurants/42/products/days?" + rng,
 		"/restaurants/42/branches/7/days?" + rng,
 	}
 	platformPaths := []string{
 		"/platform/days?" + rng,
+		"/platform/failures?" + rng,
 		"/platform/active-restaurants?" + rng,
 		"/platform/top-restaurants?" + rng + "&currency=EGP",
 	}

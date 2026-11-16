@@ -79,6 +79,31 @@ func (s *Service) RestaurantFailures(ctx context.Context, in analytics.ListResta
 	return buildFailureReport(days), nil
 }
 
+// PlatformFailures is RestaurantFailures for the whole platform. agg_platform_day
+// has one row per (date, currency); counts are currency-free, so the rows of a
+// day are summed into one.
+func (s *Service) PlatformFailures(ctx context.Context, in analytics.RangeInput) (analytics.FailureReport, error) {
+	from, to, err := checkRange(in.From, in.To)
+	if err != nil {
+		return analytics.FailureReport{}, err
+	}
+	docs, err := s.st.Platform.FindRange(ctx, from, to)
+	if err != nil {
+		return analytics.FailureReport{}, err
+	}
+	days := make([]failureCounts, 0, len(docs))
+	for _, d := range docs { // sorted by date, then currency
+		if n := len(days); n > 0 && days[n-1].date == d.Date {
+			days[n-1].orders += d.OrdersCount
+			days[n-1].rejected += d.RejectedCount
+			days[n-1].cancelled += d.CancelledCount
+			continue
+		}
+		days = append(days, failureCounts{date: d.Date, orders: d.OrdersCount, rejected: d.RejectedCount, cancelled: d.CancelledCount})
+	}
+	return buildFailureReport(days), nil
+}
+
 type failureCounts struct {
 	date                        string
 	orders, rejected, cancelled int64
@@ -187,6 +212,31 @@ func (s *Service) TopProducts(ctx context.Context, in analytics.TopProductsInput
 			RevenueMinor: t.RevenueSum,
 			OrdersCount:  t.OrdersCount,
 			Currency:     t.Currency,
+		})
+	}
+	return rows, nil
+}
+
+// ProductDays: per-day rollup rows of a restaurant's products (optionally one
+// product), oldest first. TopProducts is the same data summed over the range.
+func (s *Service) ProductDays(ctx context.Context, in analytics.ProductDaysInput) ([]analytics.ProductDayRow, error) {
+	from, to, err := checkRange(in.From, in.To)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := s.st.Products.FindRange(ctx, in.RestaurantID, in.ProductID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]analytics.ProductDayRow, 0, len(docs))
+	for _, d := range docs {
+		rows = append(rows, analytics.ProductDayRow{
+			Date:         d.Date,
+			ProductID:    d.ProductID,
+			UnitsSold:    d.UnitsSold,
+			RevenueMinor: d.RevenueSum,
+			OrdersCount:  d.OrdersCount,
+			Currency:     d.Currency,
 		})
 	}
 	return rows, nil

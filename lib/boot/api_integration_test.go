@@ -121,6 +121,22 @@ func TestAPI_RestaurantEndpoints(t *testing.T) {
 		assert.Equal(t, data, []dto.ProductRankResponse{{ProductID: 1, UnitsSold: 2, RevenueMinor: 6000, OrdersCount: 1, Currency: "EGP"}})
 	})
 
+	t.Run("GET /restaurants/{id}/products/days for one product", func(t *testing.T) {
+		// Arrange — seeded above
+
+		// Act
+		res := app.get(t, "/restaurants/42/products/days"+octRange+"&productId=2", &testkit.Owner)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusOK)
+		var data []dto.ProductDayResponse
+		res.DataAs(t, &data)
+		assert.Equal(t, data, []dto.ProductDayResponse{
+			{Date: "2026-10-01", ProductID: 2, UnitsSold: 3, RevenueMinor: 3000, OrdersCount: 1, Currency: "EGP"},
+			{Date: "2026-10-02", ProductID: 2, UnitsSold: 1, RevenueMinor: 1000, OrdersCount: 1, Currency: "EGP"},
+		})
+	})
+
 	t.Run("GET /restaurants/{id}/branches/{bid}/days for the branch manager", func(t *testing.T) {
 		// Arrange — seeded above
 
@@ -178,6 +194,25 @@ func TestAPI_PlatformEndpoints(t *testing.T) {
 		assert.Equal(t, data, dto.ActiveRestaurantsResponse{
 			From: "2026-10-01", To: "2026-10-31", ActiveRestaurants: 2,
 			Days: []dto.ActiveRestaurantsDayResponse{{Date: "2026-10-01", ActiveRestaurants: 2}, {Date: "2026-10-02", ActiveRestaurants: 1}},
+		})
+	})
+
+	t.Run("GET /platform/failures", func(t *testing.T) {
+		// Arrange — seeded above
+
+		// Act
+		res := app.get(t, "/platform/failures"+octRange, &testkit.Admin)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusOK)
+		var data dto.FailureReportResponse
+		res.DataAs(t, &data)
+		assert.Equal(t, data, dto.FailureReportResponse{
+			From: "2026-10-01", To: "2026-10-31", OrdersCount: 5, RejectedCount: 1, FailedCount: 1, FailureRate: 0.2,
+			Days: []dto.FailureDayResponse{
+				{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, FailedCount: 1, FailureRate: 0.25},
+				{Date: "2026-10-02", OrdersCount: 1},
+			},
 		})
 	})
 

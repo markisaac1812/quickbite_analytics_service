@@ -159,6 +159,14 @@ type TopProductsInput struct {
 	Limit        int
 }
 
+// ProductDaysInput: ProductID 0 means every product of the restaurant.
+type ProductDaysInput struct {
+	RestaurantID int64
+	ProductID    int64
+	From         time.Time
+	To           time.Time
+}
+
 type TopRestaurantsInput struct {
 	From     time.Time
 	To       time.Time
@@ -234,6 +242,15 @@ type ProductRankRow struct {
 	Currency     string
 }
 
+type ProductDayRow struct {
+	Date         string
+	ProductID    int64
+	UnitsSold    int64
+	RevenueMinor int64
+	OrdersCount  int64
+	Currency     string
+}
+
 type PlatformDayRow struct {
 	Date           string
 	Currency       string
@@ -300,6 +317,8 @@ type ProductDayStore interface {
 	// IncrementLines applies every line in ONE BulkWrite (one round trip per order).
 	IncrementLines(ctx context.Context, restaurantID int64, date, currency string, lines []OrderLine, at time.Time) error
 	TopProducts(ctx context.Context, restaurantID int64, fromDate, toDate string, limit int) ([]entity.ProductTotal, error)
+	// FindRange returns per-day rows of a restaurant's products; productID 0 = all products.
+	FindRange(ctx context.Context, restaurantID, productID int64, fromDate, toDate string) ([]entity.ProductDay, error)
 }
 
 type PlatformDayStore interface {

@@ -34,7 +34,7 @@ func RestaurantDaysFrom(rows []analytics.RestaurantDayRow) []RestaurantDayRespon
 	return out
 }
 
-// ── /restaurants/{id}/failures ──
+// ── /restaurants/{id}/failures and /platform/failures ──
 
 // failureRate = rejectedCount / ordersCount, cancellationRate =
 // cancelledCount / ordersCount, failedCount = rejectedCount + cancelledCount.
@@ -140,6 +140,28 @@ func ProductRanksFrom(rows []analytics.ProductRankRow) []ProductRankResponse {
 	out := make([]ProductRankResponse, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ProductRankResponse{ProductID: r.ProductID, UnitsSold: r.UnitsSold, RevenueMinor: r.RevenueMinor, OrdersCount: r.OrdersCount, Currency: r.Currency})
+	}
+	return out
+}
+
+// ── /restaurants/{id}/products/days ──
+
+type ProductDayResponse struct {
+	Date         string `json:"date"`
+	ProductID    int64  `json:"productId"`
+	UnitsSold    int64  `json:"unitsSold"`
+	RevenueMinor int64  `json:"revenueMinor"`
+	OrdersCount  int64  `json:"ordersCount"`
+	Currency     string `json:"currency"`
+}
+
+func ProductDaysFrom(rows []analytics.ProductDayRow) []ProductDayResponse {
+	out := make([]ProductDayResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ProductDayResponse{
+			Date: r.Date, ProductID: r.ProductID, UnitsSold: r.UnitsSold,
+			RevenueMinor: r.RevenueMinor, OrdersCount: r.OrdersCount, Currency: r.Currency,
+		})
 	}
 	return out
 }

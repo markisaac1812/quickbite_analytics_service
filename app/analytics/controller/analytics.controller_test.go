@@ -206,6 +206,51 @@ func TestGetTopProducts(t *testing.T) {
 	})
 }
 
+func TestGetProductDays(t *testing.T) {
+	t.Run("returns per-day product rows filtered by productId", func(t *testing.T) {
+		// Arrange
+		h := newHarness(t)
+		h.fakes.Products.Days = []entity.ProductDay{{ProductID: 9, RestaurantID: 42, Date: "2026-10-01", Currency: "EGP", UnitsSold: 3, RevenueSum: 4500, OrdersCount: 2}}
+
+		// Act
+		res := h.get(t, "/restaurants/42/products/days?"+rng+"&productId=9", &testkit.Owner)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusOK)
+		var data []dto.ProductDayResponse
+		res.DataAs(t, &data)
+		assert.Equal(t, data, []dto.ProductDayResponse{{Date: "2026-10-01", ProductID: 9, UnitsSold: 3, RevenueMinor: 4500, OrdersCount: 2, Currency: "EGP"}})
+		assert.Equal(t, h.fakes.Products.DayReads[0].Limit, 9)
+	})
+
+	t.Run("reads every product when productId is omitted", func(t *testing.T) {
+		// Arrange
+		h := newHarness(t)
+
+		// Act
+		res := h.get(t, "/restaurants/42/products/days?"+rng, &testkit.Owner)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusOK)
+		assert.Equal(t, h.fakes.Products.DayReads[0].Limit, 0)
+	})
+
+	ids := map[string]string{"non-numeric": "abc", "zero": "0", "negative": "-3"}
+	for name, id := range ids {
+		t.Run("rejects a "+name+" productId", func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+
+			// Act
+			res := h.get(t, "/restaurants/42/products/days?"+rng+"&productId="+id, &testkit.Owner)
+
+			// Assert
+			assert.Equal(t, res.Status, http.StatusBadRequest)
+			assert.Equal(t, res.Error.Code, "VALIDATION_ERROR")
+		})
+	}
+}
+
 func TestGetBranchDays(t *testing.T) {
 	t.Run("returns a branch's days to its branch manager", func(t *testing.T) {
 		// Arrange

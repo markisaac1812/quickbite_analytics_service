@@ -101,6 +101,28 @@ func (c *Controller) TopProducts(w http.ResponseWriter, r *http.Request) error {
 	return httpx.SendSuccess(w, http.StatusOK, dto.ProductRanksFrom(rows))
 }
 
+// ProductDays handles GET /restaurants/{restaurantId}/products/days.
+func (c *Controller) ProductDays(w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	req := dto.ProductDaysRequest{
+		RestaurantID: parseID(chi.URLParam(r, "restaurantId")),
+		ProductID:    parseOptionalID(q.Get("productId")),
+		From:         q.Get("from"),
+		To:           q.Get("to"),
+	}
+	if err := validation.Struct(req); err != nil {
+		return err
+	}
+	from, to := parseDates(req.From, req.To)
+	rows, err := c.svc.ProductDays(r.Context(), analytics.ProductDaysInput{
+		RestaurantID: req.RestaurantID, ProductID: req.ProductID, From: from, To: to,
+	})
+	if err != nil {
+		return err
+	}
+	return httpx.SendSuccess(w, http.StatusOK, dto.ProductDaysFrom(rows))
+}
+
 // ListBranchDays handles GET /restaurants/{restaurantId}/branches/{branchId}/days.
 func (c *Controller) ListBranchDays(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
@@ -144,6 +166,18 @@ func parseID(raw string) int64 {
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0
+	}
+	return id
+}
+
+// parseOptionalID: "" → 0 (filter off); not a positive integer → -1 (validator rejects it).
+func parseOptionalID(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return -1
 	}
 	return id
 }

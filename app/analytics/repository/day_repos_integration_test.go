@@ -286,6 +286,32 @@ func TestProductDayRepo(t *testing.T) {
 		})
 	})
 
+	t.Run("returns a restaurant's per-day rows, optionally for one product", func(t *testing.T) {
+		// Arrange
+		reset(t)
+		assert.NoErr(t, repo.IncrementLines(ctx, 42, "2026-10-02", "EGP", []analytics.OrderLine{{ProductID: 2, Quantity: 1, LineTotalMinor: 500}, {ProductID: 1, Quantity: 2, LineTotalMinor: 2000}}, at))
+		assert.NoErr(t, repo.IncrementLines(ctx, 42, "2026-10-01", "EGP", []analytics.OrderLine{{ProductID: 1, Quantity: 1, LineTotalMinor: 1000}}, at))
+		assert.NoErr(t, repo.IncrementLines(ctx, 42, "2026-11-05", "EGP", []analytics.OrderLine{{ProductID: 1, Quantity: 1, LineTotalMinor: 1000}}, at)) // out of range
+		assert.NoErr(t, repo.IncrementLines(ctx, 99, "2026-10-01", "EGP", []analytics.OrderLine{{ProductID: 50, Quantity: 1, LineTotalMinor: 777}}, at)) // other tenant
+
+		// Act
+		all, errAll := repo.FindRange(ctx, 42, 0, "2026-10-01", "2026-10-31")
+		one, errOne := repo.FindRange(ctx, 42, 1, "2026-10-01", "2026-10-31")
+		foreign, errForeign := repo.FindRange(ctx, 42, 50, "2026-10-01", "2026-10-31")
+
+		// Assert
+		assert.NoErr(t, errAll)
+		assert.NoErr(t, errOne)
+		assert.NoErr(t, errForeign)
+		assert.Equal(t, all, []entity.ProductDay{
+			{ProductID: 1, RestaurantID: 42, Date: "2026-10-01", Currency: "EGP", UnitsSold: 1, RevenueSum: 1000, OrdersCount: 1, UpdatedAt: at},
+			{ProductID: 1, RestaurantID: 42, Date: "2026-10-02", Currency: "EGP", UnitsSold: 2, RevenueSum: 2000, OrdersCount: 1, UpdatedAt: at},
+			{ProductID: 2, RestaurantID: 42, Date: "2026-10-02", Currency: "EGP", UnitsSold: 1, RevenueSum: 500, OrdersCount: 1, UpdatedAt: at},
+		})
+		assert.Len(t, one, 2)
+		assert.Len(t, foreign, 0)
+	})
+
 	t.Run("wraps driver errors", func(t *testing.T) {
 		// Arrange
 		ctx := cancelled()
@@ -293,10 +319,12 @@ func TestProductDayRepo(t *testing.T) {
 		// Act
 		incErr := repo.IncrementLines(ctx, 42, "2026-10-01", "EGP", []analytics.OrderLine{{ProductID: 1, Quantity: 1}}, at)
 		_, topErr := repo.TopProducts(ctx, 42, "2026-10-01", "2026-10-01", 1)
+		_, findErr := repo.FindRange(ctx, 42, 0, "2026-10-01", "2026-10-01")
 
 		// Assert
 		assert.Contains(t, incErr.Error(), "agg_product_day bulk increment (1 lines)")
 		assert.Contains(t, topErr.Error(), "agg_product_day top")
+		assert.Contains(t, findErr.Error(), "agg_product_day find")
 	})
 }
 

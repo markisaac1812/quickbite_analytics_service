@@ -66,6 +66,19 @@ func TestFailureReportFrom(t *testing.T) {
 		`"days":[{"date":"2026-10-01","ordersCount":3,"rejectedCount":1,"cancelledCount":1,"failedCount":2,"failureRate":0.3333,"cancellationRate":0.3333}]}`)
 }
 
+func TestProductDaysFrom(t *testing.T) {
+	// Arrange
+	rows := []analytics.ProductDayRow{{Date: "2026-10-01", ProductID: 9, UnitsSold: 3, RevenueMinor: 4500, OrdersCount: 2, Currency: "EGP"}}
+
+	// Act
+	out := toJSON(t, dto.ProductDaysFrom(rows))
+	empty := toJSON(t, dto.ProductDaysFrom(nil))
+
+	// Assert
+	assert.Equal(t, out, `[{"date":"2026-10-01","productId":9,"unitsSold":3,"revenueMinor":4500,"ordersCount":2,"currency":"EGP"}]`)
+	assert.Equal(t, empty, `[]`)
+}
+
 func TestDeliveryReportFrom(t *testing.T) {
 	// Arrange
 	rep := analytics.DeliveryReport{DeliveredCount: 2, AvgDeliveryMs: 900000,
