@@ -68,13 +68,15 @@ func TestRestaurantDayRepo(t *testing.T) {
 		// Act
 		assert.NoErr(t, repo.Increment(ctx, 42, "2026-10-01", "EGP", analytics.DayDelta{Orders: 1, Revenue: 2500}, at))
 		assert.NoErr(t, repo.Increment(ctx, 42, "2026-10-01", "EGP", analytics.DayDelta{Orders: 1, Revenue: 1500, Payments: 1, PaymentsSum: 1500}, at))
+		assert.NoErr(t, repo.Increment(ctx, 42, "2026-10-01", "EGP", analytics.DayDelta{Cancelled: 1, CancelledRevenue: 1500}, at))
 
 		// Assert
 		rows, err := repo.FindRange(ctx, 42, "2026-10-01", "2026-10-01")
 		assert.NoErr(t, err)
 		assert.Equal(t, rows, []entity.RestaurantDay{{
 			RestaurantID: 42, Date: "2026-10-01", Currency: "EGP", UpdatedAt: at,
-			DayCounters: entity.DayCounters{OrdersCount: 2, RevenueSum: 4000, PaymentsCount: 1, PaymentsSum: 1500},
+			DayCounters: entity.DayCounters{OrdersCount: 2, RevenueSum: 4000, PaymentsCount: 1, PaymentsSum: 1500,
+				CancelledCount: 1, CancelledRevenueSum: 1500},
 		}})
 		assert.Equal(t, tm.Count(repository.CollRestaurantDay, nil), int64(1))
 	})
@@ -89,7 +91,8 @@ func TestRestaurantDayRepo(t *testing.T) {
 		// Assert
 		var doc bson.M
 		assert.NoErr(t, tm.DB.Collection(repository.CollRestaurantDay).FindOne(ctx, bson.D{}).Decode(&doc))
-		for _, f := range []string{"orders_count", "revenue_sum", "delivery_ms_sum", "delivery_ms_count", "rejected_count", "rejected_revenue_sum"} {
+		for _, f := range []string{"orders_count", "revenue_sum", "delivery_ms_sum", "delivery_ms_count", "rejected_count", "rejected_revenue_sum",
+			"cancelled_count", "cancelled_revenue_sum"} {
 			_, ok := doc[f]
 			assert.True(t, ok, f)
 		}

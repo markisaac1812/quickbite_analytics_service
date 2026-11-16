@@ -115,6 +115,13 @@ type OnOrderRejectedInput struct {
 	RejectedAt   time.Time
 }
 
+type OnOrderCancelledInput struct {
+	OrderID      string
+	RestaurantID int64
+	BranchID     int64
+	CancelledAt  time.Time
+}
+
 type OnPaymentCompletedInput struct {
 	OrderID      string
 	RestaurantID int64
@@ -170,19 +177,26 @@ type RestaurantDayRow struct {
 	AvgOrderMinor int64
 }
 
-// FailureDayRow: failureRate = rejected / orders (0 when no orders).
+// FailureDayRow: failureRate = rejected / orders, cancellationRate =
+// cancelled / orders (0 when no orders). failedCount = rejected + cancelled.
 type FailureDayRow struct {
-	Date          string
-	OrdersCount   int64
-	RejectedCount int64
-	FailureRate   float64
+	Date             string
+	OrdersCount      int64
+	RejectedCount    int64
+	CancelledCount   int64
+	FailedCount      int64
+	FailureRate      float64
+	CancellationRate float64
 }
 
 type FailureReport struct {
-	OrdersCount   int64
-	RejectedCount int64
-	FailureRate   float64
-	Days          []FailureDayRow
+	OrdersCount      int64
+	RejectedCount    int64
+	CancelledCount   int64
+	FailedCount      int64
+	FailureRate      float64
+	CancellationRate float64
+	Days             []FailureDayRow
 }
 
 // DeliveryDayRow: avgDeliveryMs = delivery_ms_sum / delivery_ms_count.
@@ -227,6 +241,7 @@ type PlatformDayRow struct {
 	RevenueMinor   int64
 	AvgOrderMinor  int64
 	RejectedCount  int64
+	CancelledCount int64
 	FailureRate    float64
 	DeliveredCount int64
 	AvgDeliveryMs  int64
@@ -257,14 +272,16 @@ type RestaurantRankRow struct {
 // DayDelta is one associative change to a day row. Every counter is $inc'ed
 // (zeros included, so documents always have the same shape).
 type DayDelta struct {
-	Orders          int64
-	Revenue         int64
-	DeliveryMs      int64
-	Deliveries      int64
-	Rejected        int64
-	RejectedRevenue int64
-	Payments        int64
-	PaymentsSum     int64
+	Orders           int64
+	Revenue          int64
+	DeliveryMs       int64
+	Deliveries       int64
+	Rejected         int64
+	RejectedRevenue  int64
+	Cancelled        int64
+	CancelledRevenue int64
+	Payments         int64
+	PaymentsSum      int64
 }
 
 type RestaurantDayStore interface {
@@ -300,10 +317,12 @@ type OrderTimelineStore interface {
 	RecordPlaced(ctx context.Context, in TimelinePlaced) error
 	RecordDelivered(ctx context.Context, orderID string, restaurantID, branchID int64, deliveredAt, at time.Time) error
 	RecordRejected(ctx context.Context, orderID string, restaurantID, branchID int64, rejectedAt, at time.Time) error
+	RecordCancelled(ctx context.Context, orderID string, restaurantID, branchID int64, cancelledAt, at time.Time) error
 	// ClaimDelivery returns the timeline iff placed+delivered are both known and
 	// the delivery metric was not applied yet (and marks it applied). nil otherwise.
 	ClaimDelivery(ctx context.Context, orderID string) (*entity.OrderTimeline, error)
 	ClaimRejection(ctx context.Context, orderID string) (*entity.OrderTimeline, error)
+	ClaimCancellation(ctx context.Context, orderID string) (*entity.OrderTimeline, error)
 }
 
 type TimelinePlaced struct {

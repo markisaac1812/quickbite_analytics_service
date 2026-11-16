@@ -362,6 +362,132 @@ func TestOnOrderRejected(t *testing.T) {
 	})
 }
 
+func TestOnOrderCancelled(t *testing.T) {
+	cancelledInput := func(orderID string) analytics.OnOrderCancelledInput {
+		return analytics.OnOrderCancelledInput{OrderID: orderID, RestaurantID: 42, BranchID: 7, CancelledAt: fixedNow.Add(time.Minute)}
+	}
+
+	t.Run("counts the cancellation and its revenue on the placed day", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		placedAt := time.Date(2026, 10, 28, 10, 0, 0, 0, time.UTC)
+		assert.NoErr(t, svc.OnOrderPlaced(context.Background(), placedInput("o-1", placedAt)))
+
+		// Act
+		err := svc.OnOrderCancelled(context.Background(), cancelledInput("o-1"))
+
+		// Assert
+		assert.NoErr(t, err)
+		want := analytics.DayDelta{Cancelled: 1, CancelledRevenue: 2500}
+		assert.Equal(t, fakes.Restaurants.Incs[1], testkit.DayInc{ID: 42, Date: "2026-10-28", Currency: "EGP", Delta: want})
+		assert.Equal(t, fakes.Branches.Incs[1], testkit.DayInc{ID: 7, ParentID: 42, Date: "2026-10-28", Currency: "EGP", Delta: want})
+		assert.Equal(t, fakes.Platform.Incs[1], testkit.DayInc{Date: "2026-10-28", Currency: "EGP", Delta: want})
+	})
+
+	t.Run("settles a cancellation that arrived before the order was placed", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		placedAt := time.Date(2026, 10, 28, 10, 0, 0, 0, time.UTC)
+		assert.NoErr(t, svc.OnOrderCancelled(context.Background(), cancelledInput("o-1")))
+		assert.Len(t, fakes.Restaurants.Incs, 0)
+
+		// Act
+		err := svc.OnOrderPlaced(context.Background(), placedInput("o-1", placedAt))
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Len(t, fakes.Restaurants.Incs, 2)
+		assert.Equal(t, fakes.Restaurants.Incs[1].Delta, analytics.DayDelta{Cancelled: 1, CancelledRevenue: 2500})
+	})
+
+	t.Run("does not count an order that was never placed", func(t *testing.T) {
+		// Arrange — an online order voided before payment never emits order.placed
+		svc, fakes := newTestService()
+
+		// Act
+		err := svc.OnOrderCancelled(context.Background(), cancelledInput("o-1"))
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Len(t, fakes.Restaurants.Incs, 0)
+		assert.Len(t, fakes.Platform.Incs, 0)
+		assert.True(t, fakes.Timelines.Get("o-1").CancelledAt != nil, "fact recorded, waiting for order.placed")
+	})
+
+	t.Run("applies the cancellation only once on a replayed event", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		assert.NoErr(t, svc.OnOrderPlaced(context.Background(), placedInput("o-1", fixedNow)))
+		assert.NoErr(t, svc.OnOrderCancelled(context.Background(), cancelledInput("o-1")))
+
+		// Act
+		err := svc.OnOrderCancelled(context.Background(), cancelledInput("o-1"))
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Len(t, fakes.Restaurants.Incs, 2)
+		assert.True(t, fakes.Timelines.Get("o-1").CancellationApplied, "claim is consumed for good")
+	})
+
+	t.Run("keeps rejections and cancellations apart", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		assert.NoErr(t, svc.OnOrderPlaced(context.Background(), placedInput("o-1", fixedNow)))
+		assert.NoErr(t, svc.OnOrderRejected(context.Background(), analytics.OnOrderRejectedInput{
+			OrderID: "o-1", RestaurantID: 42, BranchID: 7, RejectedAt: fixedNow.Add(time.Minute)}))
+
+		// Act
+		err := svc.OnOrderCancelled(context.Background(), cancelledInput("o-2"))
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Len(t, fakes.Restaurants.Incs, 2)
+		assert.Equal(t, fakes.Restaurants.Incs[1].Delta, analytics.DayDelta{Rejected: 1, RejectedRevenue: 2500})
+	})
+
+	t.Run("rejects an invalid payload", func(t *testing.T) {
+		cases := map[string]func(*analytics.OnOrderCancelledInput){
+			"missing orderId":    func(in *analytics.OnOrderCancelledInput) { in.OrderID = "" },
+			"zero restaurantId":  func(in *analytics.OnOrderCancelledInput) { in.RestaurantID = 0 },
+			"missing occurredAt": func(in *analytics.OnOrderCancelledInput) { in.CancelledAt = time.Time{} },
+		}
+		for name, mutate := range cases {
+			t.Run(name, func(t *testing.T) {
+				// Arrange
+				svc, fakes := newTestService()
+				in := cancelledInput("o-1")
+				mutate(&in)
+
+				// Act
+				err := svc.OnOrderCancelled(context.Background(), in)
+
+				// Assert
+				assert.ErrIs(t, err, analytics.ErrInvalidEventPayload)
+				assert.True(t, fakes.Timelines.Get("o-1") == nil, "nothing written")
+			})
+		}
+	})
+
+	t.Run("propagates store failures", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		assert.NoErr(t, svc.OnOrderPlaced(context.Background(), placedInput("o-1", fixedNow)))
+		fakes.Platform.Err = errStore
+
+		// Act
+		errApply := svc.OnOrderCancelled(context.Background(), cancelledInput("o-1"))
+		fakes.Timelines.Err = errStore
+		errRecord := svc.OnOrderCancelled(context.Background(), cancelledInput("o-2"))
+		fakes.Timelines.Err, fakes.Timelines.ClaimErr = nil, errStore
+		errClaim := svc.OnOrderCancelled(context.Background(), cancelledInput("o-3"))
+
+		// Assert
+		assert.ErrIs(t, errApply, errStore)
+		assert.ErrIs(t, errRecord, errStore)
+		assert.ErrIs(t, errClaim, errStore)
+	})
+}
+
 func TestOnPaymentCompleted(t *testing.T) {
 	paymentInput := func() analytics.OnPaymentCompletedInput {
 		return analytics.OnPaymentCompletedInput{

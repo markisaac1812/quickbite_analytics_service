@@ -61,8 +61,8 @@ func (s *Service) ListBranchDays(ctx context.Context, in analytics.ListBranchDay
 	return rows, nil
 }
 
-// RestaurantFailures derives rejection rates from orders_count and
-// rejected_count — no extra collection.
+// RestaurantFailures derives rejection/cancellation rates from orders_count,
+// rejected_count and cancelled_count — no extra collection.
 func (s *Service) RestaurantFailures(ctx context.Context, in analytics.ListRestaurantDaysInput) (analytics.FailureReport, error) {
 	from, to, err := checkRange(in.From, in.To)
 	if err != nil {
@@ -72,22 +72,43 @@ func (s *Service) RestaurantFailures(ctx context.Context, in analytics.ListResta
 	if err != nil {
 		return analytics.FailureReport{}, err
 	}
-	rep := analytics.FailureReport{Days: make([]analytics.FailureDayRow, 0, len(docs))}
+	days := make([]failureCounts, 0, len(docs))
 	for _, d := range docs {
-		if d.OrdersCount == 0 && d.RejectedCount == 0 {
+		days = append(days, failureCounts{date: d.Date, orders: d.OrdersCount, rejected: d.RejectedCount, cancelled: d.CancelledCount})
+	}
+	return buildFailureReport(days), nil
+}
+
+type failureCounts struct {
+	date                        string
+	orders, rejected, cancelled int64
+}
+
+// buildFailureReport: range rates come from range totals, not from averaging
+// daily rates. Days with no orders and no failures are skipped (sparse).
+func buildFailureReport(days []failureCounts) analytics.FailureReport {
+	rep := analytics.FailureReport{Days: make([]analytics.FailureDayRow, 0, len(days))}
+	for _, d := range days {
+		if d.orders == 0 && d.rejected == 0 && d.cancelled == 0 {
 			continue
 		}
-		rep.OrdersCount += d.OrdersCount
-		rep.RejectedCount += d.RejectedCount
+		rep.OrdersCount += d.orders
+		rep.RejectedCount += d.rejected
+		rep.CancelledCount += d.cancelled
 		rep.Days = append(rep.Days, analytics.FailureDayRow{
-			Date:          d.Date,
-			OrdersCount:   d.OrdersCount,
-			RejectedCount: d.RejectedCount,
-			FailureRate:   rate(d.RejectedCount, d.OrdersCount),
+			Date:             d.date,
+			OrdersCount:      d.orders,
+			RejectedCount:    d.rejected,
+			CancelledCount:   d.cancelled,
+			FailedCount:      d.rejected + d.cancelled,
+			FailureRate:      rate(d.rejected, d.orders),
+			CancellationRate: rate(d.cancelled, d.orders),
 		})
 	}
+	rep.FailedCount = rep.RejectedCount + rep.CancelledCount
 	rep.FailureRate = rate(rep.RejectedCount, rep.OrdersCount)
-	return rep, nil
+	rep.CancellationRate = rate(rep.CancelledCount, rep.OrdersCount)
+	return rep
 }
 
 // RestaurantDeliveryAvg derives average delivery time from
@@ -190,6 +211,7 @@ func (s *Service) PlatformDays(ctx context.Context, in analytics.RangeInput) ([]
 			RevenueMinor:   d.RevenueSum,
 			AvgOrderMinor:  avg(d.RevenueSum, d.OrdersCount),
 			RejectedCount:  d.RejectedCount,
+			CancelledCount: d.CancelledCount,
 			FailureRate:    rate(d.RejectedCount, d.OrdersCount),
 			DeliveredCount: d.DeliveryMsCount,
 			AvgDeliveryMs:  avg(d.DeliveryMsSum, d.DeliveryMsCount),

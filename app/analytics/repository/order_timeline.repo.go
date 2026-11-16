@@ -38,6 +38,7 @@ func (r *OrderTimelineRepo) RecordPlaced(ctx context.Context, in analytics.Timel
 		{Key: "$setOnInsert", Value: bson.D{
 			{Key: "delivery_applied", Value: false},
 			{Key: "rejection_applied", Value: false},
+			{Key: "cancellation_applied", Value: false},
 		}},
 	}
 	return r.upsert(ctx, in.OrderID, update, "placed")
@@ -51,6 +52,10 @@ func (r *OrderTimelineRepo) RecordRejected(ctx context.Context, orderID string, 
 	return r.upsert(ctx, orderID, r.factUpdate("rejected_at", rejectedAt, restaurantID, branchID, at), "rejected")
 }
 
+func (r *OrderTimelineRepo) RecordCancelled(ctx context.Context, orderID string, restaurantID, branchID int64, cancelledAt, at time.Time) error {
+	return r.upsert(ctx, orderID, r.factUpdate("cancelled_at", cancelledAt, restaurantID, branchID, at), "cancelled")
+}
+
 // ClaimDelivery atomically flips delivery_applied false→true when both
 // placed_at and delivered_at are present. Exactly one caller ever gets the
 // document back, however many events race for it.
@@ -60,6 +65,13 @@ func (r *OrderTimelineRepo) ClaimDelivery(ctx context.Context, orderID string) (
 
 func (r *OrderTimelineRepo) ClaimRejection(ctx context.Context, orderID string) (*entity.OrderTimeline, error) {
 	return r.claim(ctx, orderID, "rejected_at", "rejection_applied")
+}
+
+// ClaimCancellation: same contract as ClaimRejection, for order.cancelled.
+// A cancelled order that was never placed (online order voided before
+// payment) never gets placed_at, so it is never claimed — correctly not counted.
+func (r *OrderTimelineRepo) ClaimCancellation(ctx context.Context, orderID string) (*entity.OrderTimeline, error) {
+	return r.claim(ctx, orderID, "cancelled_at", "cancellation_applied")
 }
 
 // factUpdate: a later fact sets its own timestamp; tenant ids only on insert
@@ -72,6 +84,7 @@ func (r *OrderTimelineRepo) factUpdate(field string, ts time.Time, restaurantID,
 			{Key: "branch_id", Value: branchID},
 			{Key: "delivery_applied", Value: false},
 			{Key: "rejection_applied", Value: false},
+			{Key: "cancellation_applied", Value: false},
 		}},
 	}
 }

@@ -97,7 +97,7 @@ func TestGetRestaurantReports(t *testing.T) {
 	t.Run("failures", func(t *testing.T) {
 		// Arrange
 		h := newHarness(t)
-		h.fakes.Restaurants.Rows = []entity.RestaurantDay{day("2026-10-01", entity.DayCounters{OrdersCount: 4, RejectedCount: 1})}
+		h.fakes.Restaurants.Rows = []entity.RestaurantDay{day("2026-10-01", entity.DayCounters{OrdersCount: 4, RejectedCount: 1, CancelledCount: 1})}
 
 		// Act
 		res := h.get(t, "/restaurants/42/failures?"+rng, &testkit.Owner)
@@ -107,8 +107,10 @@ func TestGetRestaurantReports(t *testing.T) {
 		var data dto.FailureReportResponse
 		res.DataAs(t, &data)
 		assert.Equal(t, data, dto.FailureReportResponse{
-			From: "2026-10-01", To: "2026-10-31", OrdersCount: 4, RejectedCount: 1, FailureRate: 0.25,
-			Days: []dto.FailureDayResponse{{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, FailureRate: 0.25}},
+			From: "2026-10-01", To: "2026-10-31", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2,
+			FailureRate: 0.25, CancellationRate: 0.25,
+			Days: []dto.FailureDayResponse{{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2,
+				FailureRate: 0.25, CancellationRate: 0.25}},
 		})
 	})
 

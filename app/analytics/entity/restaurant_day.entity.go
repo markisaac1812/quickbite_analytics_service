@@ -9,14 +9,16 @@ import "time"
 // sums and counts, so partial rows merge associatively ($inc) no matter the
 // order events arrive in or how often a day is replayed/rebuilt.
 type DayCounters struct {
-	OrdersCount        int64 `bson:"orders_count"`
-	RevenueSum         int64 `bson:"revenue_sum"` // minor units, placed orders (gross)
-	DeliveryMsSum      int64 `bson:"delivery_ms_sum"`
-	DeliveryMsCount    int64 `bson:"delivery_ms_count"`
-	RejectedCount      int64 `bson:"rejected_count"`
-	RejectedRevenueSum int64 `bson:"rejected_revenue_sum"` // minor units
-	PaymentsCount      int64 `bson:"payments_count"`       // captured online payments
-	PaymentsSum        int64 `bson:"payments_sum"`         // minor units
+	OrdersCount         int64 `bson:"orders_count"`
+	RevenueSum          int64 `bson:"revenue_sum"` // minor units, placed orders (gross)
+	DeliveryMsSum       int64 `bson:"delivery_ms_sum"`
+	DeliveryMsCount     int64 `bson:"delivery_ms_count"`
+	RejectedCount       int64 `bson:"rejected_count"`
+	RejectedRevenueSum  int64 `bson:"rejected_revenue_sum"` // minor units
+	CancelledCount      int64 `bson:"cancelled_count"`
+	CancelledRevenueSum int64 `bson:"cancelled_revenue_sum"` // minor units
+	PaymentsCount       int64 `bson:"payments_count"`        // captured online payments
+	PaymentsSum         int64 `bson:"payments_sum"`          // minor units
 }
 
 // RestaurantDay is one document in agg_restaurant_day: one restaurant, one UTC day.

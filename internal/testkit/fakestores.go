@@ -268,6 +268,17 @@ func (f *FakeTimelines) RecordRejected(_ context.Context, orderID string, restau
 	return nil
 }
 
+func (f *FakeTimelines) RecordCancelled(_ context.Context, orderID string, restaurantID, branchID int64, cancelledAt, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	t := f.getLocked(orderID, restaurantID, branchID)
+	t.CancelledAt, t.UpdatedAt = &cancelledAt, at
+	return nil
+}
+
 func (f *FakeTimelines) ClaimDelivery(_ context.Context, orderID string) (*entity.OrderTimeline, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -294,6 +305,21 @@ func (f *FakeTimelines) ClaimRejection(_ context.Context, orderID string) (*enti
 		return nil, nil
 	}
 	t.RejectionApplied = true
+	cp := *t
+	return &cp, nil
+}
+
+func (f *FakeTimelines) ClaimCancellation(_ context.Context, orderID string) (*entity.OrderTimeline, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ClaimErr != nil {
+		return nil, f.ClaimErr
+	}
+	t, ok := f.byOrder[orderID]
+	if !ok || t.PlacedAt == nil || t.CancelledAt == nil || t.CancellationApplied {
+		return nil, nil
+	}
+	t.CancellationApplied = true
 	cp := *t
 	return &cp, nil
 }

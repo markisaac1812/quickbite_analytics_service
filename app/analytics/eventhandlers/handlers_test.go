@@ -27,7 +27,7 @@ func newDispatcher(t *testing.T) (*coreevents.Dispatcher, *testkit.FakeStores) {
 }
 
 func TestRegister(t *testing.T) {
-	t.Run("registers the four consumed event types", func(t *testing.T) {
+	t.Run("registers the five consumed event types", func(t *testing.T) {
 		// Arrange
 		d, _ := newDispatcher(t)
 
@@ -35,8 +35,9 @@ func TestRegister(t *testing.T) {
 		types := d.RegisteredTypes()
 
 		// Assert
-		assert.Len(t, types, 4)
-		for _, want := range []string{analytics.EventOrderPlaced, analytics.EventOrderDelivered, analytics.EventOrderRejected, analytics.EventPaymentCompleted} {
+		assert.Len(t, types, 5)
+		for _, want := range []string{analytics.EventOrderPlaced, analytics.EventOrderDelivered, analytics.EventOrderRejected,
+			analytics.EventOrderCancelled, analytics.EventPaymentCompleted} {
 			found := false
 			for _, got := range types {
 				found = found || got == want
@@ -139,6 +140,22 @@ func TestTransitionHandlers(t *testing.T) {
 		assert.Equal(t, *fakes.Timelines.Get("o-1").RejectedAt, placedAt.Add(time.Minute))
 	})
 
+	t.Run("order.cancelled counts the cancellation on the placed day", func(t *testing.T) {
+		// Arrange
+		d, fakes := newDispatcher(t)
+		_, err := d.Apply(context.Background(), testkit.Envelope(analytics.EventOrderPlaced, testkit.Placed("o-1", placedAt)))
+		assert.NoErr(t, err)
+		env := testkit.Envelope(analytics.EventOrderCancelled, testkit.Cancelled("o-1", placedAt.Add(5*time.Minute)))
+
+		// Act
+		_, err = d.Apply(context.Background(), env)
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Equal(t, *fakes.Timelines.Get("o-1").CancelledAt, placedAt.Add(5*time.Minute))
+		assert.Equal(t, fakes.Restaurants.Incs[1].Delta.Cancelled, int64(1))
+	})
+
 	t.Run("payment.completed applies the captured amount", func(t *testing.T) {
 		// Arrange
 		d, fakes := newDispatcher(t)
@@ -154,7 +171,8 @@ func TestTransitionHandlers(t *testing.T) {
 }
 
 func TestHandlers_InvalidPayloads(t *testing.T) {
-	types := []string{analytics.EventOrderPlaced, analytics.EventOrderDelivered, analytics.EventOrderRejected, analytics.EventPaymentCompleted}
+	types := []string{analytics.EventOrderPlaced, analytics.EventOrderDelivered, analytics.EventOrderRejected,
+		analytics.EventOrderCancelled, analytics.EventPaymentCompleted}
 
 	for _, eventType := range types {
 		t.Run(eventType+" dead-letters a payload that is not an object", func(t *testing.T) {

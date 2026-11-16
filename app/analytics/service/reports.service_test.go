@@ -185,9 +185,9 @@ func TestRestaurantFailures(t *testing.T) {
 		// Assert
 		assert.NoErr(t, err)
 		assert.Equal(t, rep, analytics.FailureReport{
-			OrdersCount: 7, RejectedCount: 1, FailureRate: 0.1429,
+			OrdersCount: 7, RejectedCount: 1, FailedCount: 1, FailureRate: 0.1429,
 			Days: []analytics.FailureDayRow{
-				{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, FailureRate: 0.3333},
+				{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, FailedCount: 1, FailureRate: 0.3333},
 				{Date: "2026-10-03", OrdersCount: 4, RejectedCount: 0, FailureRate: 0},
 			},
 		})
@@ -204,6 +204,30 @@ func TestRestaurantFailures(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.Equal(t, rep.FailureRate, 0.0)
 		assert.Len(t, rep.Days, 0)
+	})
+}
+
+func TestRestaurantFailures_Cancellations(t *testing.T) {
+	t.Run("reports cancellations next to rejections", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		fakes.Restaurants.Rows = []entity.RestaurantDay{
+			restaurantDay("2026-10-01", entity.DayCounters{OrdersCount: 4, RejectedCount: 1, CancelledCount: 1}),
+			restaurantDay("2026-10-02", entity.DayCounters{CancelledCount: 1}), // cancellation-only day is kept
+		}
+
+		// Act
+		rep, err := svc.RestaurantFailures(context.Background(), restaurantRange())
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Equal(t, rep, analytics.FailureReport{
+			OrdersCount: 4, RejectedCount: 1, CancelledCount: 2, FailedCount: 3, FailureRate: 0.25, CancellationRate: 0.5,
+			Days: []analytics.FailureDayRow{
+				{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2, FailureRate: 0.25, CancellationRate: 0.25},
+				{Date: "2026-10-02", CancelledCount: 1, FailedCount: 1},
+			},
+		})
 	})
 }
 
@@ -313,7 +337,7 @@ func TestPlatformDays(t *testing.T) {
 		svc, fakes := newTestService()
 		fakes.Platform.Rows = []entity.PlatformDay{
 			{Date: "2026-10-01", Currency: "EGP", DayCounters: entity.DayCounters{
-				OrdersCount: 4, RevenueSum: 10000, RejectedCount: 1, DeliveryMsSum: 9000, DeliveryMsCount: 3,
+				OrdersCount: 4, RevenueSum: 10000, RejectedCount: 1, CancelledCount: 1, DeliveryMsSum: 9000, DeliveryMsCount: 3,
 				PaymentsCount: 2, PaymentsSum: 5000,
 			}},
 			{Date: "2026-10-01", Currency: "SAR"},
@@ -326,7 +350,7 @@ func TestPlatformDays(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.Equal(t, rows, []analytics.PlatformDayRow{
 			{Date: "2026-10-01", Currency: "EGP", OrdersCount: 4, RevenueMinor: 10000, AvgOrderMinor: 2500,
-				RejectedCount: 1, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000},
+				RejectedCount: 1, CancelledCount: 1, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000},
 			{Date: "2026-10-01", Currency: "SAR"},
 		})
 	})
