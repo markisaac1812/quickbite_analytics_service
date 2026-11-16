@@ -39,3 +39,8 @@ Thumbs.db
 Dockerfile
 .dockerignore
 docker-compose.yml
+docker-compose.test.yml
+
+# CI config
+.github
+scripts
