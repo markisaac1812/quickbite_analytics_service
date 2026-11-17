@@ -1,0 +1,63 @@
+name: Deploy
+
+# Test -> build & push the image to ECR -> roll the ECS service.
+# The analytics service has no SQL migrations (Mongo indexes are ensured on boot).
+#
+# Repository variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   AWS_REGION        e.g. eu-north-1
+#   AWS_DEPLOY_ROLE   IAM role ARN trusted for GitHub OIDC, e.g. arn:aws:iam::<account>:role/github_deploy
+#   ECS_CLUSTER       e.g. quickbite-1
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write   # OIDC -> AWS, no long-lived access keys in GitHub
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+  ECR_REPO: analytics-service
+  ECS_SERVICE: analytics-service
+
+jobs:
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run tests
+        run: docker compose -f docker-compose.test.yml run --rm test
+      - name: Stop containers
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -t $REG/${{ env.ECR_REPO }}:${{ github.sha }} -t $REG/${{ env.ECR_REPO }}:latest .
+          docker push $REG/${{ env.ECR_REPO }} --all-tags
+
+      - name: Deploy
+        run: aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment

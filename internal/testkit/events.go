@@ -47,6 +47,15 @@ func Rejected(orderID string, occurredAt time.Time) analytics.OrderTransitionPay
 	}
 }
 
+func Cancelled(orderID string, occurredAt time.Time) analytics.OrderTransitionPayload {
+	reason := "customer changed their mind"
+	return analytics.OrderTransitionPayload{
+		OrderID: orderID, Region: "eg", RestaurantID: RestaurantID, BranchID: BranchID,
+		CustomerID: 30, Status: "cancelled", Reason: &reason, Actor: "customer",
+		OccurredAt: occurredAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
 func PaymentCompleted(orderID string, amount int64, completedAt time.Time) analytics.PaymentCompletedPayload {
 	return analytics.PaymentCompletedPayload{
 		OrderID: orderID, Region: "eg", RestaurantID: RestaurantID, BranchID: BranchID,

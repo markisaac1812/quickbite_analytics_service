@@ -21,11 +21,13 @@ import (
 //	GET /analytics/restaurants/{restaurantId}/delivery-avg?from=&to=
 //	GET /analytics/restaurants/{restaurantId}/payments?from=&to=
 //	GET /analytics/restaurants/{restaurantId}/products/top?from=&to=&limit=
+//	GET /analytics/restaurants/{restaurantId}/products/days?from=&to=&productId=
 //	GET /analytics/restaurants/{restaurantId}/branches/{branchId}/days?from=&to=   (+ own branch)
 //
 // Platform-wide (authenticate → system_admin):
 //
 //	GET /analytics/platform/days?from=&to=
+//	GET /analytics/platform/failures?from=&to=
 //	GET /analytics/platform/active-restaurants?from=&to=
 //	GET /analytics/platform/top-restaurants?from=&to=&currency=&limit=
 func Mount(r chi.Router, ctrl *Controller, authn *auth.Middleware, guard *rbac.Guard, log *slog.Logger) {
@@ -40,6 +42,7 @@ func Mount(r chi.Router, ctrl *Controller, authn *auth.Middleware, guard *rbac.G
 			r.Get("/delivery-avg", apperr.Wrap(log, ctrl.RestaurantDeliveryAvg))
 			r.Get("/payments", apperr.Wrap(log, ctrl.RestaurantPayments))
 			r.Get("/products/top", apperr.Wrap(log, ctrl.TopProducts))
+			r.Get("/products/days", apperr.Wrap(log, ctrl.ProductDays))
 			r.With(guard.RequireBranchAccess("branchId")).
 				Get("/branches/{branchId}/days", apperr.Wrap(log, ctrl.ListBranchDays))
 		})
@@ -48,6 +51,7 @@ func Mount(r chi.Router, ctrl *Controller, authn *auth.Middleware, guard *rbac.G
 			r.Use(guard.RequireRole(rbac.RoleSystemAdmin))
 
 			r.Get("/days", apperr.Wrap(log, ctrl.PlatformDays))
+			r.Get("/failures", apperr.Wrap(log, ctrl.PlatformFailures))
 			r.Get("/active-restaurants", apperr.Wrap(log, ctrl.ActiveRestaurants))
 			r.Get("/top-restaurants", apperr.Wrap(log, ctrl.TopRestaurants))
 		})

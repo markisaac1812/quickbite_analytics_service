@@ -100,7 +100,26 @@ func TestEvents_TwoEventMetrics(t *testing.T) {
 		res := app.get(t, "/restaurants/42/failures"+octRange, &testkit.Owner)
 		var rep dto.FailureReportResponse
 		res.DataAs(t, &rep)
-		assert.Equal(t, rep.Days, []dto.FailureDayResponse{{Date: "2026-10-05", OrdersCount: 1, RejectedCount: 1, FailureRate: 1}})
+		assert.Equal(t, rep.Days, []dto.FailureDayResponse{{Date: "2026-10-05", OrdersCount: 1, RejectedCount: 1, FailedCount: 1, FailureRate: 1}})
+	})
+
+	t.Run("counts a cancellation that arrives before its order on the placed day", func(t *testing.T) {
+		// Arrange
+		app.reset(t)
+		cancelled := testkit.Envelope(analytics.EventOrderCancelled, testkit.Cancelled("o-1", oct5.Add(10*time.Minute)))
+		placed := testkit.Envelope(analytics.EventOrderPlaced, testkit.Placed("o-1", oct5))
+
+		// Act
+		app.publish(t, cancelled)
+		app.publish(t, placed)
+		app.waitApplied(t, placed.EventID)
+
+		// Assert
+		res := app.get(t, "/restaurants/42/failures"+octRange, &testkit.Owner)
+		var rep dto.FailureReportResponse
+		res.DataAs(t, &rep)
+		assert.Equal(t, rep.Days, []dto.FailureDayResponse{{Date: "2026-10-05", OrdersCount: 1, CancelledCount: 1, FailedCount: 1, CancellationRate: 1}})
+		assert.Equal(t, app.amqp.MessageCount(app.cfg.Rabbit.DLQ), 0)
 	})
 
 	t.Run("applies a payment that arrives before its order on the capture day", func(t *testing.T) {

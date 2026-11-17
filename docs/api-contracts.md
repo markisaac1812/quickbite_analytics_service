@@ -32,6 +32,8 @@ Base URL (local): `http://localhost:4002`. Versioned prefix: `/api/v1/analytics`
 | 7 | `GET /platform/days` | `system_admin` |
 | 8 | `GET /platform/active-restaurants` | `system_admin` |
 | 9 | `GET /platform/top-restaurants` | `system_admin` |
+| 10 | `GET /restaurants/{restaurantId}/products/days` | `analytics:read` + own restaurant |
+| 11 | `GET /platform/failures` | `system_admin` |
 
 ### Access rules
 
@@ -75,17 +77,19 @@ One row per day with orders.
 
 ## 2. `GET /restaurants/{restaurantId}/failures?from=&to=`
 
-Derived from `orders_count` and `rejected_count`; no extra collection.
+Derived from `orders_count`, `rejected_count` and `cancelled_count`; no extra collection.
 
 ```json
 {"success": true, "data": {
   "from": "2026-10-15", "to": "2026-10-15",
-  "ordersCount": 6, "rejectedCount": 2, "failureRate": 0.3333,
-  "days": [{"date": "2026-10-15", "ordersCount": 6, "rejectedCount": 2, "failureRate": 0.3333}]
+  "ordersCount": 6, "rejectedCount": 2, "cancelledCount": 1, "failedCount": 3,
+  "failureRate": 0.3333, "cancellationRate": 0.1667,
+  "days": [{"date": "2026-10-15", "ordersCount": 6, "rejectedCount": 2, "cancelledCount": 1, "failedCount": 3,
+            "failureRate": 0.3333, "cancellationRate": 0.1667}]
 }}
 ```
 
-`failureRate = rejectedCount / ordersCount` (0 when there are no orders). The range rate is computed from the range totals, not by averaging the daily rates.
+`failureRate = rejectedCount / ordersCount`, `cancellationRate = cancelledCount / ordersCount` (0 when there are no orders), `failedCount = rejectedCount + cancelledCount`. Range rates are computed from the range totals, not by averaging the daily rates. A day appears when it has orders, rejections or cancellations.
 
 ## 3. `GET /restaurants/{restaurantId}/delivery-avg?from=&to=`
 
@@ -135,10 +139,10 @@ One row per (day, currency). Currencies are never summed together.
 ```json
 {"success": true, "data": [
   {"date": "2026-10-15", "currency": "EGP", "ordersCount": 7, "revenueMinor": 19200, "avgOrderMinor": 2742,
-   "rejectedCount": 2, "failureRate": 0.2857, "deliveredCount": 2, "avgDeliveryMs": 1800000,
+   "rejectedCount": 2, "cancelledCount": 0, "failureRate": 0.2857, "deliveredCount": 2, "avgDeliveryMs": 1800000,
    "paymentsCount": 1, "paymentsMinor": 4200},
   {"date": "2026-10-15", "currency": "SAR", "ordersCount": 1, "revenueMinor": 3000, "avgOrderMinor": 3000,
-   "rejectedCount": 0, "failureRate": 0, "deliveredCount": 0, "avgDeliveryMs": 0, "paymentsCount": 0, "paymentsMinor": 0}
+   "rejectedCount": 0, "cancelledCount": 0, "failureRate": 0, "deliveredCount": 0, "avgDeliveryMs": 0, "paymentsCount": 0, "paymentsMinor": 0}
 ]}
 ```
 
@@ -183,6 +187,21 @@ Restaurants with at least one order: distinct over the whole range, plus per day
 
 Declared in `lib/errors/apperror.go` (cross-cutting), `lib/coreclient/client.go` (upstream), and `app/analytics/errors.go` (module).
 
+## 10. `GET /restaurants/{restaurantId}/products/days?from=&to=&productId=`
+
+Per-day product rows (the unsummed data behind endpoint 5), oldest first, then by `productId`. `productId` is optional: omitted means every product of the restaurant; when given it must be a positive integer. A product of another restaurant returns `[]`.
+
+```json
+{"success": true, "data": [
+  {"date": "2026-10-15", "productId": 2, "unitsSold": 3, "revenueMinor": 3000, "ordersCount": 1, "currency": "EGP"},
+  {"date": "2026-10-16", "productId": 2, "unitsSold": 1, "revenueMinor": 1000, "ordersCount": 1, "currency": "EGP"}
+]}
+```
+
+## 11. `GET /platform/failures?from=&to=`
+
+Same shape and rules as endpoint 2, for the whole platform. Counts are currency-free, so the per-currency platform rows of a day are summed into one day.
+
 ---
 
 ## Inbound event contracts
@@ -193,11 +212,12 @@ The envelope is identical for every event: `{eventId, eventType, occurredAt, agg
 
 | Event | Producer | Payload fields used | Effect |
 | --- | --- | --- | --- |
-| `order.placed` | order.service.ts (COD) / kashier-webhook.service.ts (online, after capture) | `orderId, restaurantId, branchId, total, currency, items[{productId, quantity, lineTotal}], placedAt` | restaurant + branch + platform day: `orders_count+1`, `revenue_sum+=total`; product day per item (one `BulkWrite`); timeline `placed_*`; settles any waiting delivery/rejection |
+| `order.placed` | order.service.ts (COD) / kashier-webhook.service.ts (online, after capture) | `orderId, restaurantId, branchId, total, currency, items[{productId, quantity, lineTotal}], placedAt` | restaurant + branch + platform day: `orders_count+1`, `revenue_sum+=total`; product day per item (one `BulkWrite`); timeline `placed_*`; settles any waiting delivery/rejection/cancellation |
 | `order.delivered` | settlement.service.ts | `orderId, restaurantId, branchId, deliveredAt` (**no placedAt**) | timeline `delivered_at`; once placed is known (in any order): `delivery_ms_sum += deliveredAt−placedAt`, `delivery_ms_count+1` on the placed day |
 | `order.rejected` | order.service.ts status transition | `orderId, restaurantId, branchId, occurredAt` | timeline `rejected_at`; once placed is known: `rejected_count+1`, `rejected_revenue_sum += total` on the placed day |
 | `payment.completed` | kashier-webhook.service.ts (written **before** the online `order.placed`) | `restaurantId, branchId, amount, currency, completedAt` | restaurant + branch + platform day of capture: `payments_count+1`, `payments_sum+=amount` |
-| `order.accepted`, `order.cancelled`, `payment.failed` | — | — | logged + acked (no handler yet) |
+| `order.cancelled` | order.service.ts status transition | `orderId, restaurantId, branchId, occurredAt` | timeline `cancelled_at`; once placed is known: `cancelled_count+1`, `cancelled_revenue_sum += total` on the placed day. An order cancelled before it was ever placed (online order voided before payment) never gets `placed_at`, so it is not counted |
+| `order.accepted`, `payment.failed` | — | — | logged + acked (no handler yet) |
 
 Missing or invalid required fields → `ANALYTICS_INVALID_EVENT_PAYLOAD` → DLQ.
 

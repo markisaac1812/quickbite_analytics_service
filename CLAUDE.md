@@ -10,9 +10,9 @@ These rules apply to the **`analytics-service`** of the **QuickBite** platform. 
 
 Owns **per-day rollups** of order / payment / delivery activity.
 
-- **Consumes** `order.placed`, `order.delivered`, `order.rejected`, `payment.completed` from `order-service` (`order.events` exchange) and `rbac.permissions_changed` from `core-service` (`core.events`).
+- **Consumes** `order.placed`, `order.delivered`, `order.rejected`, `order.cancelled`, `payment.completed` from `order-service` (`order.events` exchange) and `rbac.permissions_changed` from `core-service` (`core.events`).
 - **Upserts** day-grained aggregates into MongoDB: `agg_restaurant_day`, `agg_branch_day`, `agg_product_day`, `agg_platform_day` (+ the `order_timelines` helper and `event_ids` dedupe).
-- **Serves** read-only HTTP endpoints under `/api/v1/analytics/...` (9 endpoints, see `docs/api-contracts.md`).
+- **Serves** read-only HTTP endpoints under `/api/v1/analytics/...` (11 endpoints, see `docs/api-contracts.md`).
 - **Rebuilds** aggregates from exported events with `cmd/backfill-aggs`.
 
 It does **not** own users, restaurants, products, orders or payments. It does **not** write to any operational store. It does **not** emit events. It does **not** have its own RBAC catalog (`analytics:read` is seeded in **core-service**).
@@ -155,8 +155,8 @@ go list -f '{{.ImportPath}} {{join .Imports " "}}' ./cmd/... ./app/... ./lib/...
 - **No migrations.** `repository/indexes.go` declares every index with a comment naming the query it supports; `EnsureIndexes` runs on boot (and in backfill).
 - **Explicit projections** (`dayCounterProjection` ≈ `<MODULE>_COLUMNS`).
 - **Aggregates are associative and commutative.** Store `sum` + `count`; every write is an `$inc` upsert on the natural key; every `agg_*_day` row has the same counter block (`entity.DayCounters`, shared `$inc` builder in `repository/counters.go`). Event order never matters.
-- **Day bucket rule:** order-scoped metrics (orders, revenue, delivery time, rejections) land on the UTC day the order was **placed**; payments on the day they were **captured**.
-- **Two-event metrics go through `order_timelines`.** Each event `$set`s its fact; the metric is applied by an atomic **claim** (`findOneAndUpdate` flipping `delivery_applied` / `rejection_applied`) by whichever event completes the pair. Never compute a two-event metric from one event's payload.
+- **Day bucket rule:** order-scoped metrics (orders, revenue, delivery time, rejections, cancellations) land on the UTC day the order was **placed**; payments on the day they were **captured**.
+- **Two-event metrics go through `order_timelines`.** Each event `$set`s its fact; the metric is applied by an atomic **claim** (`findOneAndUpdate` flipping `delivery_applied` / `rejection_applied` / `cancellation_applied`) by whichever event completes the pair. Never compute a two-event metric from one event's payload.
 - **Line items → one `BulkWrite`** (unordered, upserts), lines merged by product first. Never one round trip per line.
 - **Transactions:** with a replica set (`MONGO_TRANSACTIONS=auto|on`), the dispatcher runs `MarkSeen` + every write of an event in **one transaction** → exactly-once. Repositories need nothing special: the session rides on `ctx`. Standalone (`off`/auto-fallback): dedupe + `Forget`-on-failure; a *partial* failure can double-count earlier writes on replay (documented trade-off).
 - Repos are structs holding a `*mongo.Collection`, built once in `lib/boot/wiring.go`.
@@ -273,12 +273,14 @@ Every item above ships with its tests (§14) in the same PR. Before calling anyt
 
 ## 13. Out of scope / known gaps
 
-- Handlers for `order.accepted`, `order.cancelled`, `payment.failed` (acked + logged today).
+- Handlers for `order.accepted`, `payment.failed` (acked + logged today).
 - core-service publishing `rbac.permissions_changed` (no permission-mutation path exists in core yet).
 - Exactly-once on a **standalone** mongod (needs a replica set; see §7).
 - DLQ replay tooling; an order-service internal export endpoint (backfill reads a `psql` export, see `docs/backfill.md`).
 - Emitting events, writing to any operational DB, owning any business entity.
-- CORS, rate limiting, OpenAPI generation, metrics/tracing, Docker Compose / deployment (later DevOps section).
+- CORS, rate limiting, OpenAPI generation, metrics/tracing.
+
+Deployment: `Dockerfile` (distroless, bundles the AWS RDS/DocumentDB CA as `/app/global-bundle.pem`), `docker-compose.test.yml` (CI: unit + integration), `.github/workflows/{ci,deploy}.yml` (deploy = test → ECR push → ECS rolling update; AWS ids come from repo variables).
 
 ---
 

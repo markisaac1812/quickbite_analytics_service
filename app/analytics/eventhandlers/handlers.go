@@ -15,12 +15,13 @@ import (
 
 // Register wires every event this module consumes into the dispatcher.
 // Events on the bindings without an entry here (order.accepted,
-// order.cancelled, payment.failed, …) are logged and acked.
+// payment.failed, …) are logged and acked.
 func Register(d *coreevents.Dispatcher, svc *service.Service) error {
 	table := map[string]coreevents.EventHandler{
 		analytics.EventOrderPlaced:      onOrderPlaced(svc),
 		analytics.EventOrderDelivered:   onOrderDelivered(svc),
 		analytics.EventOrderRejected:    onOrderRejected(svc),
+		analytics.EventOrderCancelled:   onOrderCancelled(svc),
 		analytics.EventPaymentCompleted: onPaymentCompleted(svc),
 	}
 	for eventType, h := range table {
@@ -92,6 +93,25 @@ func onOrderRejected(svc *service.Service) coreevents.EventHandler {
 			RestaurantID: p.RestaurantID,
 			BranchID:     p.BranchID,
 			RejectedAt:   rejectedAt,
+		})
+	}
+}
+
+func onOrderCancelled(svc *service.Service) coreevents.EventHandler {
+	return func(ctx context.Context, env coreevents.Envelope) error {
+		var p analytics.OrderTransitionPayload
+		if err := decode(env, &p); err != nil {
+			return err
+		}
+		cancelledAt, err := firstTime(p.OccurredAt, env.OccurredAt)
+		if err != nil {
+			return analytics.ErrInvalidEventPayload.WithMessage("order.cancelled: occurredAt missing or not RFC3339")
+		}
+		return svc.OnOrderCancelled(ctx, analytics.OnOrderCancelledInput{
+			OrderID:      p.OrderID,
+			RestaurantID: p.RestaurantID,
+			BranchID:     p.BranchID,
+			CancelledAt:  cancelledAt,
 		})
 	}
 }

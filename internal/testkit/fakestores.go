@@ -156,7 +156,20 @@ type FakeProductDays struct {
 	Err   error
 	Bulk  []LinesCall
 	Top   []entity.ProductTotal
+	Days  []entity.ProductDay
 	Reads []RangeCall
+	// DayReads records FindRange calls: ID = restaurant, Limit = product id.
+	DayReads []RangeCall
+}
+
+func (f *FakeProductDays) FindRange(_ context.Context, restaurantID, productID int64, from, to string) ([]entity.ProductDay, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.DayReads = append(f.DayReads, RangeCall{ID: restaurantID, From: from, To: to, Limit: int(productID)})
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	return f.Days, nil
 }
 
 func (f *FakeProductDays) IncrementLines(_ context.Context, restaurantID int64, date, currency string, lines []analytics.OrderLine, _ time.Time) error {
@@ -268,6 +281,17 @@ func (f *FakeTimelines) RecordRejected(_ context.Context, orderID string, restau
 	return nil
 }
 
+func (f *FakeTimelines) RecordCancelled(_ context.Context, orderID string, restaurantID, branchID int64, cancelledAt, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	t := f.getLocked(orderID, restaurantID, branchID)
+	t.CancelledAt, t.UpdatedAt = &cancelledAt, at
+	return nil
+}
+
 func (f *FakeTimelines) ClaimDelivery(_ context.Context, orderID string) (*entity.OrderTimeline, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -294,6 +318,21 @@ func (f *FakeTimelines) ClaimRejection(_ context.Context, orderID string) (*enti
 		return nil, nil
 	}
 	t.RejectionApplied = true
+	cp := *t
+	return &cp, nil
+}
+
+func (f *FakeTimelines) ClaimCancellation(_ context.Context, orderID string) (*entity.OrderTimeline, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ClaimErr != nil {
+		return nil, f.ClaimErr
+	}
+	t, ok := f.byOrder[orderID]
+	if !ok || t.PlacedAt == nil || t.CancelledAt == nil || t.CancellationApplied {
+		return nil, nil
+	}
+	t.CancellationApplied = true
 	cp := *t
 	return &cp, nil
 }

@@ -21,6 +21,8 @@ func dayCounterUpdate(d analytics.DayDelta, currency string, at time.Time, setOn
 			{Key: "delivery_ms_count", Value: d.Deliveries},
 			{Key: "rejected_count", Value: d.Rejected},
 			{Key: "rejected_revenue_sum", Value: d.RejectedRevenue},
+			{Key: "cancelled_count", Value: d.Cancelled},
+			{Key: "cancelled_revenue_sum", Value: d.CancelledRevenue},
 			{Key: "payments_count", Value: d.Payments},
 			{Key: "payments_sum", Value: d.PaymentsSum},
 		}},
@@ -37,7 +39,7 @@ func dayCounterProjection(keyFields ...string) bson.D {
 	}
 	for _, f := range []string{
 		"currency", "orders_count", "revenue_sum", "delivery_ms_sum", "delivery_ms_count",
-		"rejected_count", "rejected_revenue_sum", "payments_count", "payments_sum", "updated_at",
+		"rejected_count", "rejected_revenue_sum", "cancelled_count", "cancelled_revenue_sum", "payments_count", "payments_sum", "updated_at",
 	} {
 		p = append(p, bson.E{Key: f, Value: 1})
 	}

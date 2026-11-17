@@ -21,7 +21,7 @@ import (
 // OnOrderPlaced: orders_count += 1, revenue_sum += total on the restaurant,
 // branch and platform day; per-product units/revenue via one BulkWrite; then
 // records the placed facts and settles any metric waiting for them
-// (delivered/rejected that arrived first).
+// (delivered/rejected/cancelled that arrived first).
 func (s *Service) OnOrderPlaced(ctx context.Context, in analytics.OnOrderPlacedInput) error {
 	if in.OrderID == "" || in.RestaurantID <= 0 || in.Currency == "" || in.TotalMinor < 0 || in.PlacedAt.IsZero() {
 		return analytics.ErrInvalidEventPayload.WithMessage(
@@ -86,6 +86,21 @@ func (s *Service) OnOrderRejected(ctx context.Context, in analytics.OnOrderRejec
 	return s.settle(ctx, in.OrderID)
 }
 
+// OnOrderCancelled records cancelledAt; like a rejection, the cancellation is
+// counted on the placed day once order.placed has been seen. An order
+// cancelled before it was ever placed (online order voided before payment)
+// never completes the pair, so it is not counted.
+func (s *Service) OnOrderCancelled(ctx context.Context, in analytics.OnOrderCancelledInput) error {
+	if in.OrderID == "" || in.RestaurantID <= 0 || in.CancelledAt.IsZero() {
+		return analytics.ErrInvalidEventPayload.WithMessage(
+			fmt.Sprintf("order.cancelled %s: orderId, restaurantId and occurredAt are required", in.OrderID))
+	}
+	if err := s.st.Timelines.RecordCancelled(ctx, in.OrderID, in.RestaurantID, in.BranchID, in.CancelledAt.UTC(), s.now().UTC()); err != nil {
+		return err
+	}
+	return s.settle(ctx, in.OrderID)
+}
+
 // OnPaymentCompleted: payments_count += 1, payments_sum += amount on the
 // capture day. Self-contained (the payload has everything), so it needs no
 // timeline even though it is written to the outbox BEFORE order.placed.
@@ -123,7 +138,17 @@ func (s *Service) settle(ctx context.Context, orderID string) error {
 		return err
 	}
 	if t != nil {
-		return s.applyRejection(ctx, t)
+		if err := s.applyRejection(ctx, t); err != nil {
+			return err
+		}
+	}
+
+	t, err = s.st.Timelines.ClaimCancellation(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if t != nil {
+		return s.applyCancellation(ctx, t)
 	}
 	return nil
 }
@@ -152,6 +177,16 @@ func (s *Service) applyRejection(ctx context.Context, t *entity.OrderTimeline) e
 		return err
 	}
 	logger.FromContext(ctx).Info("rejection applied",
+		"order_id", t.OrderID, "restaurant_id", t.RestaurantID, "date", t.PlacedDate)
+	return nil
+}
+
+func (s *Service) applyCancellation(ctx context.Context, t *entity.OrderTimeline) error {
+	if err := s.incDay(ctx, t.RestaurantID, t.BranchID, t.PlacedDate, t.Currency,
+		analytics.DayDelta{Cancelled: 1, CancelledRevenue: t.TotalMinor}); err != nil {
+		return err
+	}
+	logger.FromContext(ctx).Info("cancellation applied",
 		"order_id", t.OrderID, "restaurant_id", t.RestaurantID, "date", t.PlacedDate)
 	return nil
 }

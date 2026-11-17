@@ -16,7 +16,11 @@ type OrderTimeline struct {
 	PlacedDate       string     `bson:"placed_date,omitempty"` // bucket for every order-scoped metric
 	DeliveredAt      *time.Time `bson:"delivered_at,omitempty"`
 	RejectedAt       *time.Time `bson:"rejected_at,omitempty"`
+	CancelledAt      *time.Time `bson:"cancelled_at,omitempty"`
 	DeliveryApplied  bool       `bson:"delivery_applied"`
 	RejectionApplied bool       `bson:"rejection_applied"`
-	UpdatedAt        time.Time  `bson:"updated_at"`
+	// No bson default needed for older documents: the claim filter is
+	// `cancellation_applied != true`, which matches a missing field.
+	CancellationApplied bool      `bson:"cancellation_applied"`
+	UpdatedAt           time.Time `bson:"updated_at"`
 }

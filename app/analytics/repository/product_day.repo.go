@@ -58,6 +58,31 @@ func (r *ProductDayRepo) IncrementLines(ctx context.Context, restaurantID int64,
 	return nil
 }
 
+// FindRange returns a restaurant's per-day product rows (productID 0 = all),
+// by date then product. Uses idx_agg_product_day_restaurant_id_date.
+func (r *ProductDayRepo) FindRange(ctx context.Context, restaurantID, productID int64, fromDate, toDate string) ([]entity.ProductDay, error) {
+	filter := bson.D{
+		{Key: "restaurant_id", Value: restaurantID},
+		{Key: "date", Value: dateRange(fromDate, toDate)},
+	}
+	if productID > 0 {
+		filter = append(filter, bson.E{Key: "product_id", Value: productID})
+	}
+	opts := options.Find().
+		SetProjection(bson.D{{Key: "_id", Value: 0}}).
+		SetSort(bson.D{{Key: "date", Value: 1}, {Key: "product_id", Value: 1}})
+
+	cur, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("agg_product_day find: %w", err)
+	}
+	rows := []entity.ProductDay{}
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("agg_product_day decode: %w", err)
+	}
+	return rows, nil
+}
+
 // TopProducts ranks a restaurant's products by revenue over a range.
 // $match uses idx_agg_product_day_restaurant_id_date; output ≤ limit rows.
 func (r *ProductDayRepo) TopProducts(ctx context.Context, restaurantID int64, fromDate, toDate string, limit int) ([]entity.ProductTotal, error) {

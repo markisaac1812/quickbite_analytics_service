@@ -51,6 +51,14 @@ func TestReports_RangeRules(t *testing.T) {
 			_, err := s.TopProducts(context.Background(), analytics.TopProductsInput{RestaurantID: 42, From: from, To: to})
 			return err
 		},
+		"ProductDays": func(s *Service, from, to time.Time) error {
+			_, err := s.ProductDays(context.Background(), analytics.ProductDaysInput{RestaurantID: 42, From: from, To: to})
+			return err
+		},
+		"PlatformFailures": func(s *Service, from, to time.Time) error {
+			_, err := s.PlatformFailures(context.Background(), analytics.RangeInput{From: from, To: to})
+			return err
+		},
 		"PlatformDays": func(s *Service, from, to time.Time) error {
 			_, err := s.PlatformDays(context.Background(), analytics.RangeInput{From: from, To: to})
 			return err
@@ -185,9 +193,9 @@ func TestRestaurantFailures(t *testing.T) {
 		// Assert
 		assert.NoErr(t, err)
 		assert.Equal(t, rep, analytics.FailureReport{
-			OrdersCount: 7, RejectedCount: 1, FailureRate: 0.1429,
+			OrdersCount: 7, RejectedCount: 1, FailedCount: 1, FailureRate: 0.1429,
 			Days: []analytics.FailureDayRow{
-				{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, FailureRate: 0.3333},
+				{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, FailedCount: 1, FailureRate: 0.3333},
 				{Date: "2026-10-03", OrdersCount: 4, RejectedCount: 0, FailureRate: 0},
 			},
 		})
@@ -204,6 +212,103 @@ func TestRestaurantFailures(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.Equal(t, rep.FailureRate, 0.0)
 		assert.Len(t, rep.Days, 0)
+	})
+}
+
+func TestRestaurantFailures_Cancellations(t *testing.T) {
+	t.Run("reports cancellations next to rejections", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		fakes.Restaurants.Rows = []entity.RestaurantDay{
+			restaurantDay("2026-10-01", entity.DayCounters{OrdersCount: 4, RejectedCount: 1, CancelledCount: 1}),
+			restaurantDay("2026-10-02", entity.DayCounters{CancelledCount: 1}), // cancellation-only day is kept
+		}
+
+		// Act
+		rep, err := svc.RestaurantFailures(context.Background(), restaurantRange())
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Equal(t, rep, analytics.FailureReport{
+			OrdersCount: 4, RejectedCount: 1, CancelledCount: 2, FailedCount: 3, FailureRate: 0.25, CancellationRate: 0.5,
+			Days: []analytics.FailureDayRow{
+				{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2, FailureRate: 0.25, CancellationRate: 0.25},
+				{Date: "2026-10-02", CancelledCount: 1, FailedCount: 1},
+			},
+		})
+	})
+}
+
+func TestPlatformFailures(t *testing.T) {
+	t.Run("sums every currency of a day into one row", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		fakes.Platform.Rows = []entity.PlatformDay{
+			{Date: "2026-10-01", Currency: "EGP", DayCounters: entity.DayCounters{OrdersCount: 6, RejectedCount: 1, CancelledCount: 1}},
+			{Date: "2026-10-01", Currency: "SAR", DayCounters: entity.DayCounters{OrdersCount: 4, RejectedCount: 1}},
+			{Date: "2026-10-02", Currency: "EGP", DayCounters: entity.DayCounters{PaymentsCount: 3}}, // nothing to report → skipped
+			{Date: "2026-10-03", Currency: "SAR", DayCounters: entity.DayCounters{OrdersCount: 5, CancelledCount: 1}},
+		}
+
+		// Act
+		rep, err := svc.PlatformFailures(context.Background(), analytics.RangeInput{From: oct1, To: oct31})
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Equal(t, rep, analytics.FailureReport{
+			OrdersCount: 15, RejectedCount: 2, CancelledCount: 2, FailedCount: 4, FailureRate: 0.1333, CancellationRate: 0.1333,
+			Days: []analytics.FailureDayRow{
+				{Date: "2026-10-01", OrdersCount: 10, RejectedCount: 2, CancelledCount: 1, FailedCount: 3, FailureRate: 0.2, CancellationRate: 0.1},
+				{Date: "2026-10-03", OrdersCount: 5, CancelledCount: 1, FailedCount: 1, CancellationRate: 0.2},
+			},
+		})
+		assert.Equal(t, fakes.Platform.Reads[0], testkit.RangeCall{From: "2026-10-01", To: "2026-10-31"})
+	})
+
+	t.Run("returns an empty, non-nil list of days when nothing matches", func(t *testing.T) {
+		// Arrange
+		svc, _ := newTestService()
+
+		// Act
+		rep, err := svc.PlatformFailures(context.Background(), analytics.RangeInput{From: oct1, To: oct31})
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.True(t, rep.Days != nil, "days is [] not null")
+		assert.Len(t, rep.Days, 0)
+	})
+}
+
+func TestProductDays(t *testing.T) {
+	t.Run("maps the per-day rows and passes the product filter", func(t *testing.T) {
+		// Arrange
+		svc, fakes := newTestService()
+		fakes.Products.Days = []entity.ProductDay{
+			{ProductID: 9, RestaurantID: 42, Date: "2026-10-01", Currency: "EGP", UnitsSold: 3, RevenueSum: 4500, OrdersCount: 2},
+		}
+
+		// Act
+		rows, err := svc.ProductDays(context.Background(), analytics.ProductDaysInput{RestaurantID: 42, ProductID: 9, From: oct1, To: oct31})
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.Equal(t, rows, []analytics.ProductDayRow{
+			{Date: "2026-10-01", ProductID: 9, UnitsSold: 3, RevenueMinor: 4500, OrdersCount: 2, Currency: "EGP"},
+		})
+		assert.Equal(t, fakes.Products.DayReads[0], testkit.RangeCall{ID: 42, From: "2026-10-01", To: "2026-10-31", Limit: 9})
+	})
+
+	t.Run("returns an empty, non-nil list when nothing matches", func(t *testing.T) {
+		// Arrange
+		svc, _ := newTestService()
+
+		// Act
+		rows, err := svc.ProductDays(context.Background(), analytics.ProductDaysInput{RestaurantID: 42, From: oct1, To: oct31})
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.True(t, rows != nil, "[] not null")
+		assert.Len(t, rows, 0)
 	})
 }
 
@@ -313,7 +418,7 @@ func TestPlatformDays(t *testing.T) {
 		svc, fakes := newTestService()
 		fakes.Platform.Rows = []entity.PlatformDay{
 			{Date: "2026-10-01", Currency: "EGP", DayCounters: entity.DayCounters{
-				OrdersCount: 4, RevenueSum: 10000, RejectedCount: 1, DeliveryMsSum: 9000, DeliveryMsCount: 3,
+				OrdersCount: 4, RevenueSum: 10000, RejectedCount: 1, CancelledCount: 1, DeliveryMsSum: 9000, DeliveryMsCount: 3,
 				PaymentsCount: 2, PaymentsSum: 5000,
 			}},
 			{Date: "2026-10-01", Currency: "SAR"},
@@ -326,7 +431,7 @@ func TestPlatformDays(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.Equal(t, rows, []analytics.PlatformDayRow{
 			{Date: "2026-10-01", Currency: "EGP", OrdersCount: 4, RevenueMinor: 10000, AvgOrderMinor: 2500,
-				RejectedCount: 1, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000},
+				RejectedCount: 1, CancelledCount: 1, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000},
 			{Date: "2026-10-01", Currency: "SAR"},
 		})
 	})

@@ -78,8 +78,8 @@ Two-event metrics do care. `order.delivered` carries `deliveredAt` but **no `pla
 
 ```text
 order_timelines { order_id, restaurant_id, branch_id, currency, total,
-                  placed_at, placed_date, delivered_at, rejected_at,
-                  delivery_applied, rejection_applied, updated_at }   TTL 30 days
+                  placed_at, placed_date, delivered_at, rejected_at, cancelled_at,
+                  delivery_applied, rejection_applied, cancellation_applied, updated_at }   TTL 30 days
 
 each event:  upsert its own fact ($set — idempotent)
 then settle: findOneAndUpdate({order_id, placed_at∃, delivered_at∃, delivery_applied≠true},

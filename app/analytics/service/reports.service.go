@@ -61,8 +61,8 @@ func (s *Service) ListBranchDays(ctx context.Context, in analytics.ListBranchDay
 	return rows, nil
 }
 
-// RestaurantFailures derives rejection rates from orders_count and
-// rejected_count — no extra collection.
+// RestaurantFailures derives rejection/cancellation rates from orders_count,
+// rejected_count and cancelled_count — no extra collection.
 func (s *Service) RestaurantFailures(ctx context.Context, in analytics.ListRestaurantDaysInput) (analytics.FailureReport, error) {
 	from, to, err := checkRange(in.From, in.To)
 	if err != nil {
@@ -72,22 +72,68 @@ func (s *Service) RestaurantFailures(ctx context.Context, in analytics.ListResta
 	if err != nil {
 		return analytics.FailureReport{}, err
 	}
-	rep := analytics.FailureReport{Days: make([]analytics.FailureDayRow, 0, len(docs))}
+	days := make([]failureCounts, 0, len(docs))
 	for _, d := range docs {
-		if d.OrdersCount == 0 && d.RejectedCount == 0 {
+		days = append(days, failureCounts{date: d.Date, orders: d.OrdersCount, rejected: d.RejectedCount, cancelled: d.CancelledCount})
+	}
+	return buildFailureReport(days), nil
+}
+
+// PlatformFailures is RestaurantFailures for the whole platform. agg_platform_day
+// has one row per (date, currency); counts are currency-free, so the rows of a
+// day are summed into one.
+func (s *Service) PlatformFailures(ctx context.Context, in analytics.RangeInput) (analytics.FailureReport, error) {
+	from, to, err := checkRange(in.From, in.To)
+	if err != nil {
+		return analytics.FailureReport{}, err
+	}
+	docs, err := s.st.Platform.FindRange(ctx, from, to)
+	if err != nil {
+		return analytics.FailureReport{}, err
+	}
+	days := make([]failureCounts, 0, len(docs))
+	for _, d := range docs { // sorted by date, then currency
+		if n := len(days); n > 0 && days[n-1].date == d.Date {
+			days[n-1].orders += d.OrdersCount
+			days[n-1].rejected += d.RejectedCount
+			days[n-1].cancelled += d.CancelledCount
 			continue
 		}
-		rep.OrdersCount += d.OrdersCount
-		rep.RejectedCount += d.RejectedCount
+		days = append(days, failureCounts{date: d.Date, orders: d.OrdersCount, rejected: d.RejectedCount, cancelled: d.CancelledCount})
+	}
+	return buildFailureReport(days), nil
+}
+
+type failureCounts struct {
+	date                        string
+	orders, rejected, cancelled int64
+}
+
+// buildFailureReport: range rates come from range totals, not from averaging
+// daily rates. Days with no orders and no failures are skipped (sparse).
+func buildFailureReport(days []failureCounts) analytics.FailureReport {
+	rep := analytics.FailureReport{Days: make([]analytics.FailureDayRow, 0, len(days))}
+	for _, d := range days {
+		if d.orders == 0 && d.rejected == 0 && d.cancelled == 0 {
+			continue
+		}
+		rep.OrdersCount += d.orders
+		rep.RejectedCount += d.rejected
+		rep.CancelledCount += d.cancelled
 		rep.Days = append(rep.Days, analytics.FailureDayRow{
-			Date:          d.Date,
-			OrdersCount:   d.OrdersCount,
-			RejectedCount: d.RejectedCount,
-			FailureRate:   rate(d.RejectedCount, d.OrdersCount),
+			Date:             d.date,
+			OrdersCount:      d.orders,
+			RejectedCount:    d.rejected,
+			CancelledCount:   d.cancelled,
+			FailedCount:      d.rejected + d.cancelled,
+			FailureRate:      rate(d.rejected, d.orders),
+			CancellationRate: rate(d.cancelled, d.orders),
 		})
 	}
+	rep.FailedCount = rep.RejectedCount + rep.CancelledCount
 	rep.FailureRate = rate(rep.RejectedCount, rep.OrdersCount)
-	return rep, nil
+	rep.CancellationRate = rate(rep.CancelledCount, rep.OrdersCount)
+	return rep
 }
 
 // RestaurantDeliveryAvg derives average delivery time from
@@ -171,6 +217,31 @@ func (s *Service) TopProducts(ctx context.Context, in analytics.TopProductsInput
 	return rows, nil
 }
 
+// ProductDays: per-day rollup rows of a restaurant's products (optionally one
+// product), oldest first. TopProducts is the same data summed over the range.
+func (s *Service) ProductDays(ctx context.Context, in analytics.ProductDaysInput) ([]analytics.ProductDayRow, error) {
+	from, to, err := checkRange(in.From, in.To)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := s.st.Products.FindRange(ctx, in.RestaurantID, in.ProductID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]analytics.ProductDayRow, 0, len(docs))
+	for _, d := range docs {
+		rows = append(rows, analytics.ProductDayRow{
+			Date:         d.Date,
+			ProductID:    d.ProductID,
+			UnitsSold:    d.UnitsSold,
+			RevenueMinor: d.RevenueSum,
+			OrdersCount:  d.OrdersCount,
+			Currency:     d.Currency,
+		})
+	}
+	return rows, nil
+}
+
 // PlatformDays: platform-wide totals per (day, currency), all derived values included.
 func (s *Service) PlatformDays(ctx context.Context, in analytics.RangeInput) ([]analytics.PlatformDayRow, error) {
 	from, to, err := checkRange(in.From, in.To)
@@ -190,6 +261,7 @@ func (s *Service) PlatformDays(ctx context.Context, in analytics.RangeInput) ([]
 			RevenueMinor:   d.RevenueSum,
 			AvgOrderMinor:  avg(d.RevenueSum, d.OrdersCount),
 			RejectedCount:  d.RejectedCount,
+			CancelledCount: d.CancelledCount,
 			FailureRate:    rate(d.RejectedCount, d.OrdersCount),
 			DeliveredCount: d.DeliveryMsCount,
 			AvgDeliveryMs:  avg(d.DeliveryMsSum, d.DeliveryMsCount),

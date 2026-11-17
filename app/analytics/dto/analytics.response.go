@@ -34,30 +34,46 @@ func RestaurantDaysFrom(rows []analytics.RestaurantDayRow) []RestaurantDayRespon
 	return out
 }
 
-// ── /restaurants/{id}/failures ──
+// ── /restaurants/{id}/failures and /platform/failures ──
 
+// failureRate = rejectedCount / ordersCount, cancellationRate =
+// cancelledCount / ordersCount, failedCount = rejectedCount + cancelledCount.
 type FailureDayResponse struct {
-	Date          string  `json:"date"`
-	OrdersCount   int64   `json:"ordersCount"`
-	RejectedCount int64   `json:"rejectedCount"`
-	FailureRate   float64 `json:"failureRate"`
+	Date             string  `json:"date"`
+	OrdersCount      int64   `json:"ordersCount"`
+	RejectedCount    int64   `json:"rejectedCount"`
+	CancelledCount   int64   `json:"cancelledCount"`
+	FailedCount      int64   `json:"failedCount"`
+	FailureRate      float64 `json:"failureRate"`
+	CancellationRate float64 `json:"cancellationRate"`
 }
 
 type FailureReportResponse struct {
-	From          string               `json:"from"`
-	To            string               `json:"to"`
-	OrdersCount   int64                `json:"ordersCount"`
-	RejectedCount int64                `json:"rejectedCount"`
-	FailureRate   float64              `json:"failureRate"`
-	Days          []FailureDayResponse `json:"days"`
+	From             string               `json:"from"`
+	To               string               `json:"to"`
+	OrdersCount      int64                `json:"ordersCount"`
+	RejectedCount    int64                `json:"rejectedCount"`
+	CancelledCount   int64                `json:"cancelledCount"`
+	FailedCount      int64                `json:"failedCount"`
+	FailureRate      float64              `json:"failureRate"`
+	CancellationRate float64              `json:"cancellationRate"`
+	Days             []FailureDayResponse `json:"days"`
 }
 
 func FailureReportFrom(from, to string, r analytics.FailureReport) FailureReportResponse {
 	days := make([]FailureDayResponse, 0, len(r.Days))
 	for _, d := range r.Days {
-		days = append(days, FailureDayResponse{Date: d.Date, OrdersCount: d.OrdersCount, RejectedCount: d.RejectedCount, FailureRate: d.FailureRate})
+		days = append(days, FailureDayResponse{
+			Date: d.Date, OrdersCount: d.OrdersCount,
+			RejectedCount: d.RejectedCount, CancelledCount: d.CancelledCount, FailedCount: d.FailedCount,
+			FailureRate: d.FailureRate, CancellationRate: d.CancellationRate,
+		})
 	}
-	return FailureReportResponse{From: from, To: to, OrdersCount: r.OrdersCount, RejectedCount: r.RejectedCount, FailureRate: r.FailureRate, Days: days}
+	return FailureReportResponse{
+		From: from, To: to, OrdersCount: r.OrdersCount,
+		RejectedCount: r.RejectedCount, CancelledCount: r.CancelledCount, FailedCount: r.FailedCount,
+		FailureRate: r.FailureRate, CancellationRate: r.CancellationRate, Days: days,
+	}
 }
 
 // ── /restaurants/{id}/delivery-avg ──
@@ -128,6 +144,28 @@ func ProductRanksFrom(rows []analytics.ProductRankRow) []ProductRankResponse {
 	return out
 }
 
+// ── /restaurants/{id}/products/days ──
+
+type ProductDayResponse struct {
+	Date         string `json:"date"`
+	ProductID    int64  `json:"productId"`
+	UnitsSold    int64  `json:"unitsSold"`
+	RevenueMinor int64  `json:"revenueMinor"`
+	OrdersCount  int64  `json:"ordersCount"`
+	Currency     string `json:"currency"`
+}
+
+func ProductDaysFrom(rows []analytics.ProductDayRow) []ProductDayResponse {
+	out := make([]ProductDayResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ProductDayResponse{
+			Date: r.Date, ProductID: r.ProductID, UnitsSold: r.UnitsSold,
+			RevenueMinor: r.RevenueMinor, OrdersCount: r.OrdersCount, Currency: r.Currency,
+		})
+	}
+	return out
+}
+
 // ── /platform/days ──
 
 type PlatformDayResponse struct {
@@ -137,6 +175,7 @@ type PlatformDayResponse struct {
 	RevenueMinor   int64   `json:"revenueMinor"`
 	AvgOrderMinor  int64   `json:"avgOrderMinor"`
 	RejectedCount  int64   `json:"rejectedCount"`
+	CancelledCount int64   `json:"cancelledCount"`
 	FailureRate    float64 `json:"failureRate"`
 	DeliveredCount int64   `json:"deliveredCount"`
 	AvgDeliveryMs  int64   `json:"avgDeliveryMs"`
@@ -150,7 +189,7 @@ func PlatformDaysFrom(rows []analytics.PlatformDayRow) []PlatformDayResponse {
 		out = append(out, PlatformDayResponse{
 			Date: r.Date, Currency: r.Currency,
 			OrdersCount: r.OrdersCount, RevenueMinor: r.RevenueMinor, AvgOrderMinor: r.AvgOrderMinor,
-			RejectedCount: r.RejectedCount, FailureRate: r.FailureRate,
+			RejectedCount: r.RejectedCount, CancelledCount: r.CancelledCount, FailureRate: r.FailureRate,
 			DeliveredCount: r.DeliveredCount, AvgDeliveryMs: r.AvgDeliveryMs,
 			PaymentsCount: r.PaymentsCount, PaymentsMinor: r.PaymentsMinor,
 		})

@@ -13,6 +13,7 @@ const (
 	EventOrderPlaced      = "order.placed"
 	EventOrderDelivered   = "order.delivered"
 	EventOrderRejected    = "order.rejected"
+	EventOrderCancelled   = "order.cancelled"
 	EventPaymentCompleted = "payment.completed"
 )
 

@@ -53,15 +53,30 @@ func TestRestaurantDaysFrom(t *testing.T) {
 
 func TestFailureReportFrom(t *testing.T) {
 	// Arrange
-	rep := analytics.FailureReport{OrdersCount: 3, RejectedCount: 1, FailureRate: 0.3333,
-		Days: []analytics.FailureDayRow{{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, FailureRate: 0.3333}}}
+	rep := analytics.FailureReport{OrdersCount: 3, RejectedCount: 1, CancelledCount: 1, FailedCount: 2, FailureRate: 0.3333, CancellationRate: 0.3333,
+		Days: []analytics.FailureDayRow{{Date: "2026-10-01", OrdersCount: 3, RejectedCount: 1, CancelledCount: 1, FailedCount: 2,
+			FailureRate: 0.3333, CancellationRate: 0.3333}}}
 
 	// Act
 	out := toJSON(t, dto.FailureReportFrom("2026-10-01", "2026-10-31", rep))
 
 	// Assert
-	assert.Equal(t, out, `{"from":"2026-10-01","to":"2026-10-31","ordersCount":3,"rejectedCount":1,"failureRate":0.3333,`+
-		`"days":[{"date":"2026-10-01","ordersCount":3,"rejectedCount":1,"failureRate":0.3333}]}`)
+	assert.Equal(t, out, `{"from":"2026-10-01","to":"2026-10-31","ordersCount":3,"rejectedCount":1,"cancelledCount":1,"failedCount":2,`+
+		`"failureRate":0.3333,"cancellationRate":0.3333,`+
+		`"days":[{"date":"2026-10-01","ordersCount":3,"rejectedCount":1,"cancelledCount":1,"failedCount":2,"failureRate":0.3333,"cancellationRate":0.3333}]}`)
+}
+
+func TestProductDaysFrom(t *testing.T) {
+	// Arrange
+	rows := []analytics.ProductDayRow{{Date: "2026-10-01", ProductID: 9, UnitsSold: 3, RevenueMinor: 4500, OrdersCount: 2, Currency: "EGP"}}
+
+	// Act
+	out := toJSON(t, dto.ProductDaysFrom(rows))
+	empty := toJSON(t, dto.ProductDaysFrom(nil))
+
+	// Assert
+	assert.Equal(t, out, `[{"date":"2026-10-01","productId":9,"unitsSold":3,"revenueMinor":4500,"ordersCount":2,"currency":"EGP"}]`)
+	assert.Equal(t, empty, `[]`)
 }
 
 func TestDeliveryReportFrom(t *testing.T) {
@@ -129,14 +144,14 @@ func TestRankAndPlatformMappers(t *testing.T) {
 	t.Run("platform days", func(t *testing.T) {
 		// Arrange
 		rows := []analytics.PlatformDayRow{{Date: "2026-10-01", Currency: "EGP", OrdersCount: 4, RevenueMinor: 10000, AvgOrderMinor: 2500,
-			RejectedCount: 1, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000}}
+			RejectedCount: 1, CancelledCount: 2, FailureRate: 0.25, DeliveredCount: 3, AvgDeliveryMs: 3000, PaymentsCount: 2, PaymentsMinor: 5000}}
 
 		// Act
 		out := toJSON(t, dto.PlatformDaysFrom(rows))
 
 		// Assert
 		assert.Equal(t, out, `[{"date":"2026-10-01","currency":"EGP","ordersCount":4,"revenueMinor":10000,"avgOrderMinor":2500,`+
-			`"rejectedCount":1,"failureRate":0.25,"deliveredCount":3,"avgDeliveryMs":3000,"paymentsCount":2,"paymentsMinor":5000}]`)
+			`"rejectedCount":1,"cancelledCount":2,"failureRate":0.25,"deliveredCount":3,"avgDeliveryMs":3000,"paymentsCount":2,"paymentsMinor":5000}]`)
 	})
 
 	t.Run("active restaurants", func(t *testing.T) {

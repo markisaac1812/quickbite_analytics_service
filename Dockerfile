@@ -17,15 +17,28 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/analytics-service ./cmd/api
 
+# Amazon DocumentDB only accepts TLS connections signed by the AWS RDS CA.
+# Fetched here (the runtime image has no shell to chmod with): ADD from a URL
+# is owner-only, so make it world-readable for the nonroot runtime user.
+# Production MONGO_URI points at it: ...&tls=true&tlsCAFile=global-bundle.pem
+ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /out/global-bundle.pem
+RUN chmod 0644 /out/global-bundle.pem
+
 # ── stage 2: run ──────────────────────────────────────────────────────────
 # distroless/static: ~2MB, CA certs + tzdata only, no shell or package manager.
 # The :nonroot tag runs as uid 65532 (the equivalent of `USER node`).
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=builder /out/analytics-service /analytics-service
+ENV APP_ENV=production
+
+# WORKDIR so the relative tlsCAFile=global-bundle.pem in MONGO_URI resolves.
+WORKDIR /app
+
+COPY --from=builder /out/analytics-service /app/analytics-service
+COPY --from=builder /out/global-bundle.pem /app/global-bundle.pem
 
 EXPOSE 4002
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/analytics-service"]
+ENTRYPOINT ["/app/analytics-service"]

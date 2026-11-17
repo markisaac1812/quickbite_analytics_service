@@ -22,6 +22,19 @@ func (c *Controller) PlatformDays(w http.ResponseWriter, r *http.Request) error 
 	return httpx.SendSuccess(w, http.StatusOK, dto.PlatformDaysFrom(rows))
 }
 
+// PlatformFailures handles GET /platform/failures.
+func (c *Controller) PlatformFailures(w http.ResponseWriter, r *http.Request) error {
+	in, req, err := platformRange(r)
+	if err != nil {
+		return err
+	}
+	rep, err := c.svc.PlatformFailures(r.Context(), in)
+	if err != nil {
+		return err
+	}
+	return httpx.SendSuccess(w, http.StatusOK, dto.FailureReportFrom(req.From, req.To, rep))
+}
+
 // ActiveRestaurants handles GET /platform/active-restaurants.
 func (c *Controller) ActiveRestaurants(w http.ResponseWriter, r *http.Request) error {
 	in, req, err := platformRange(r)

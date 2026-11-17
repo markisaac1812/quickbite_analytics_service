@@ -88,6 +88,50 @@ func TestOrderTimelineRepo(t *testing.T) {
 		assert.Equal(t, wins.Load(), int32(1))
 	})
 
+	t.Run("claims a cancellation once, independently of the rejection claim", func(t *testing.T) {
+		// Arrange
+		reset(t)
+		assert.NoErr(t, repo.RecordCancelled(ctx, "o-1", 42, 7, placedAt.Add(time.Minute), at))
+		before, err := repo.ClaimCancellation(ctx, "o-1")
+		assert.NoErr(t, err)
+		assert.True(t, before == nil, "not placed yet")
+		assert.NoErr(t, repo.RecordPlaced(ctx, placed("o-1", placedAt)))
+
+		// Act
+		first, errFirst := repo.ClaimCancellation(ctx, "o-1")
+		second, errSecond := repo.ClaimCancellation(ctx, "o-1")
+		rejection, errRejection := repo.ClaimRejection(ctx, "o-1")
+
+		// Assert
+		assert.NoErr(t, errFirst)
+		assert.NoErr(t, errSecond)
+		assert.NoErr(t, errRejection)
+		assert.True(t, first != nil, "claimed")
+		assert.True(t, second == nil, "already applied")
+		assert.True(t, rejection == nil, "no rejection fact")
+		assert.Equal(t, *first.CancelledAt, placedAt.Add(time.Minute))
+		assert.True(t, first.CancellationApplied)
+		assert.False(t, first.RejectionApplied)
+	})
+
+	t.Run("claims a cancellation on a timeline written before the field existed", func(t *testing.T) {
+		// Arrange — legacy document: no cancellation_applied flag at all
+		reset(t)
+		_, err := tm.DB.Collection(repository.CollOrderTimeline).InsertOne(ctx, map[string]any{
+			"order_id": "o-1", "restaurant_id": int64(42), "branch_id": int64(7), "currency": "EGP", "total": int64(2500),
+			"placed_at": placedAt, "placed_date": "2026-10-29", "delivery_applied": false, "rejection_applied": false, "updated_at": at,
+		})
+		assert.NoErr(t, err)
+		assert.NoErr(t, repo.RecordCancelled(ctx, "o-1", 42, 7, placedAt.Add(time.Minute), at))
+
+		// Act
+		claimed, err := repo.ClaimCancellation(ctx, "o-1")
+
+		// Assert
+		assert.NoErr(t, err)
+		assert.True(t, claimed != nil, "missing flag counts as not applied")
+	})
+
 	t.Run("keeps one timeline per order however many facts arrive", func(t *testing.T) {
 		// Arrange
 		reset(t)

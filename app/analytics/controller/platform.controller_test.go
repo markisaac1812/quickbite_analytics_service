@@ -40,6 +40,43 @@ func TestGetPlatformDays(t *testing.T) {
 	})
 }
 
+func TestGetPlatformFailures(t *testing.T) {
+	t.Run("returns the platform failure report to a system admin", func(t *testing.T) {
+		// Arrange
+		h := newHarness(t)
+		h.fakes.Platform.Rows = []entity.PlatformDay{
+			{Date: "2026-10-01", Currency: "EGP", DayCounters: entity.DayCounters{OrdersCount: 3, RejectedCount: 1}},
+			{Date: "2026-10-01", Currency: "SAR", DayCounters: entity.DayCounters{OrdersCount: 1, CancelledCount: 1}},
+		}
+
+		// Act
+		res := h.get(t, "/platform/failures?"+rng, &testkit.Admin)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusOK)
+		var data dto.FailureReportResponse
+		res.DataAs(t, &data)
+		assert.Equal(t, data, dto.FailureReportResponse{
+			From: "2026-10-01", To: "2026-10-31", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2,
+			FailureRate: 0.25, CancellationRate: 0.25,
+			Days: []dto.FailureDayResponse{{Date: "2026-10-01", OrdersCount: 4, RejectedCount: 1, CancelledCount: 1, FailedCount: 2,
+				FailureRate: 0.25, CancellationRate: 0.25}},
+		})
+	})
+
+	t.Run("validates the range", func(t *testing.T) {
+		// Arrange
+		h := newHarness(t)
+
+		// Act
+		res := h.get(t, "/platform/failures?from=2026-10-31&to=bad", &testkit.Admin)
+
+		// Assert
+		assert.Equal(t, res.Status, http.StatusBadRequest)
+		assert.Equal(t, res.Error.Code, "VALIDATION_ERROR")
+	})
+}
+
 func TestGetActiveRestaurants(t *testing.T) {
 	t.Run("returns the distinct total with the per-day counts", func(t *testing.T) {
 		// Arrange
